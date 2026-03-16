@@ -1,0 +1,78 @@
+------------------------------------BOXES------------------------------------
+- Get bounding boxes:
+    + Bounding boxes are stored in: r.boxes
+
+    + Common formats:
+        r.boxes.xyxy   # x1,y1,x2,y2
+        r.boxes.xywh   # x_center,y_center,width,height
+        r.boxes.conf   # confidence
+        r.boxes.cls    # class id
+
+    => Example:
+        for box in r.boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            conf = box.conf[0]
+            cls = box.cls[0]
+
+            width = x2 - x1
+            height = y2 - y1
+
+            print("width:", width.item())
+            print("height:", height.item())
+
+        So if YOLO detects a person:
+            width: 210
+            height: 420
+
+- Easier way to get width and height
+    for box in r.boxes:
+        x, y, w, h = box.xywh[0]
+        print("width:", w.item())
+        print("height:", h.item())
+
+
+------------------------------------KEY POINTS------------------------------------
+- YOLO pose uses 17 keypoints:
+    0  nose
+    1  left_eye
+    2  right_eye
+    3  left_ear
+    4  right_ear
+    5  left_shoulder
+    6  right_shoulder
+    7  left_elbow
+    8  right_elbow
+    9  left_wrist
+    10 right_wrist
+    11 left_hip
+    12 right_hip
+    13 left_knee
+    14 right_knee
+    15 left_ankle
+    16 right_ankle
+
+- Code:
+    + r.keypoints
+
+    + The important fields:
+        r.keypoints.xy   # (x,y)
+        r.keypoints.xyn  # normalized
+        r.keypoints.conf # confidence
+
+    => Example:
+        keypoints = r.keypoints.xy
+
+        Shape: (num_people, 17, 2) => 17 is rows for each keypoint, 2 is columns for x and y and num_people is the depth 
+
+
+    + Print all joints for one person:
+        for person in r.keypoints.xy:
+            for i, joint in enumerate(person):
+                x = joint[0]
+                y = joint[1]
+                print(i, x.item(), y.item())
+
+    => Output example:
+        0 nose 320 110
+        1 left_eye 310 100
+        2 right_eye 330 100
