@@ -6,11 +6,11 @@ from collections import defaultdict, deque
 
 # Some variables
 model = YOLO("yolo26n-pose.pt") # load an official model
-cap = cv2.VideoCapture("FallDetection/data/random videos/fall21.mp4")
+cap = cv2.VideoCapture("FallDetection/data/random videos/fall15.mp4")
 # cap = cv2.VideoCapture(1)
 prev_time = time.time()
 
-# --------------------------------------------Helpfer function to showing FPS--------------------------------------------
+# --------------------------------------------Helpfer function to show FPS--------------------------------------------
 def show_fps(prev_time, frame):
     # FPS calculation
     cur_time = time.time()
