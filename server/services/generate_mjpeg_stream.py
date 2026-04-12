@@ -140,15 +140,16 @@ def generate_mjpeg_stream(camera_index):
                     
                     # Draw fall detection result
                     if fall_detector.detect_fall(angles[-FALL_WINDOW:], xywh, conf, FALL_WINDOW):
-                        now = datetime.now(timezone.utc)
-                        fall_events_time.append(datetime.now(timezone.utc).isoformat())
-                        if len(fall_events_time) == 1:
-                            continue
+                        if len(fall_events_time) == 0:
+                            fall_events_time.append(datetime.now(timezone.utc).isoformat())
+                            log_fall_events(camera_id=camera_index, angle_change=float(angle_change), vertical_drop=float(vertical_drop))
                         else:
+                            now = datetime.now(timezone.utc)
                             last_fall = datetime.fromisoformat(fall_events_time[-1])
                             time_diff = now - last_fall
                             # Ensure that falls don't overlap each other 
                             if time_diff.total_seconds() > 2:
+                                fall_events_time.append(datetime.now(timezone.utc).isoformat())
                                 log_fall_events(camera_id=camera_index, angle_change=float(angle_change), vertical_drop=float(vertical_drop))
                         
                         status_text = "FALL"
