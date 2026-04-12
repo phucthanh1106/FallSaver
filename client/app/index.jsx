@@ -4,117 +4,115 @@ import {
   Text, 
   View, 
   FlatList, 
+  Image,
   TouchableOpacity, 
-  ActivityIndicator, 
-  Dimensions 
+  Dimensions,
+  ActivityIndicator 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import EditCameraModal from '../components/EditCameraModal.jsx';
+import { useRouter } from 'expo-router';
 import supabase from "../config/supabaseClient.js";
 
 const { width } = Dimensions.get('window');
-const COLUMN_WIDTH = (width - 60) / 2; // Perfect spacing for a 2-column grid
 
 export default function HomeScreen() {
-    const [cameras, setCameras] = useState(null);
-    const [isEditing, setIsEditing] = useState(false); // Toggle for the FAB
-    const [isModalVisible, setIsModalVisible] = useState(false);
-    const [fetchError, setFetchError] = useState(null);
-    const [discoveredCameras, setDiscoveredCameras] = useState(null)
+    const [discoveredCameras, setDiscoveredCameras] = useState([]);
+    const [isScanning, setIsScanning] = useState(false);
+    const router = useRouter();
 
-    useEffect(() => {
-        const fetchCameras = async () => {
-            const { data, error } = await supabase.from('cameras').select();
-            if (error) {
-                setFetchError("Could not fetch cameras");
-                setCameras([]);
-            } 
-            if (data) {
-                setCameras(data);
-                setFetchError(null);
-            }
-        };
-        fetchCameras();
-    }, []); 
+    // !!!!! THIS WILL DELETE ALL ROWS IN A TABLE
+    const handleDeleteAll = async (category) => {
+        const { data, error } = await supabase
+            .from(category)
+            .delete()
+            .neq('id', 0)
+        
+        if (error) {
+            console.log(error);
+        }
+        
+        if (data) {
+            console.log(data);
+        }
+    }
+
+    /// Add new cameras to the database
+    const handleAddCam = async (category, item) => {
+        const { data, error } = await supabase
+            .from(category)
+            .insert([{ index: item.index, frame: item.frame }])
+
+        if (error) {
+            console.log(error);
+        } 
+
+        if (data) {
+            console.log(data);
+        }
+    }
+
+    // When click on a preview of a camera, navigate the user to a page that displays that camera live
+    const handleGoToLiveFeed = async (item) => {
+        router.push({
+            // router.push('cameraFeed') // sometimes works, but safer to use:
+            pathname: '/cameraFeedScreen',
+            params: {
+                cameraIndex: item.index,
+                cameraName: item.name,
+            },
+        })
+        console.log("router push working properly")
+    }
 
     const fetchDiscoveredCameras = async () => {
+        setIsScanning(true);
+        // handleDeleteAll("cameras");
         try {
             const response = await fetch('http://127.0.0.1:8000/api/cameras/scan');
             const data = await response.json();
             setDiscoveredCameras(data);
-            console.log(data);
+            // data.forEach(item => handleAddCam("cameras", item))
         } catch (err) {
             console.warn('Failed to scan cameras', err);
             setDiscoveredCameras([]);
+        } finally {
+            setIsScanning(false);
         }
     };
 
-    const handleOpenAddCamera = async () => {
-        await fetchDiscoveredCameras();
-        setIsModalVisible(true);
-    };
+    useEffect(() => {
+        fetchDiscoveredCameras();
+    }, []);
 
-    // Handle actions for the buttons
-    // const handleDeleteCamera = async (item_id) => {
-    //     const { data, error } = await supabase.
-    // };
-
-    const handleFabPress = () => { 
-        setIsEditing(!isEditing);
-    };
-
-    const displayData = cameras ? [...cameras, { id: 'ADD_BUTTON' }] : [];
-    const renderCameraCard = ({ item }) => {
-        // RENDER THE "BIG PLUS" CARD
-        if (item.id === 'ADD_BUTTON') {
-            return (
-                <TouchableOpacity 
-                    style={[styles.cameraCard, styles.addCard]} 
-                    onPress={(handleOpenAddCamera)}
-                >
-                    {/* Inner Wrapper to center the button in the middle of the card */}
-                    <View style={styles.addCardContent}>
-                        <View style={styles.shadowCircle}>
-                            <View style={styles.blackCircle}>
-                                <Ionicons name="add" size={36} color="black" />
-                            </View>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            );
-        }
-
-        // RENDER THE NORMAL CAMERA CARD
+    const renderCamPreview = ({ item }) => {
+        const previewUri = item.frame
+            ? `data:image/jpeg;base64,${item.frame}`
+            : null;
+        
         return (
             <TouchableOpacity 
-                style={[styles.cameraCard, isEditing && styles.editingCard]}
-                onLongPress={() => setIsEditing(true)}
+                style={styles.discoveryCard} 
+                onPress={() => handleGoToLiveFeed(item)}
             >
-                {isEditing && (
-                    <TouchableOpacity 
-                        style={styles.deleteBadge} 
-                        onPress={() => handleDeleteCamera(item.id)}
-                    >
-                        <Ionicons name="close" size={16} color="white" />
-                    </TouchableOpacity>
-                )}
-
-                <View style={styles.cardHeader}>
-                    <View style={[styles.iconCircle, { backgroundColor: item.status === 'Active' ? '#E8F5E9' : '#F5F5F5' }]}>
-                        <Ionicons 
-                            name="videocam" 
-                            size={22} 
-                            color={item.status === 'Active' ? "#4CAF50" : "#8E8E93"} 
+                <View style={styles.imageWrapper}>
+                    {previewUri ? (
+                        <Image
+                            source={{ uri: previewUri }}
+                            style={styles.previewImage}
+                            resizeMode="cover"
                         />
-                    </View>
-
+                    ) : (
+                        <View style={styles.previewPlaceholder}>
+                            <Text style={styles.previewPlaceholderText}>
+                                No preview
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
-                <View style={styles.cardFooter}>
-                    <Text style={styles.cameraName} numberOfLines={1}>{item.location}</Text>
-                    <View style={styles.statusRow}>
-                        <View style={[styles.statusDot, { backgroundColor: item.status === 'Active' ? '#4CAF50' : '#9E9E9E' }]} />
-                        <Text style={styles.statusText}>{item.status}</Text>
+                <View style={styles.cardContent}>
+                    <View style={styles.discoveryInfo}>
+                        <Text style={styles.discoveryText}>{item.name || `Camera ${item.id}`}</Text>
                     </View>
                 </View>
             </TouchableOpacity>
@@ -130,37 +128,40 @@ export default function HomeScreen() {
                     <Text style={styles.headerTitle}>Fall Saver</Text>
                 </View>
                 <TouchableOpacity style={styles.profileBtn}>
-                    <Ionicons name="person-circle-outline" size={32} color="#1A1A1A" />
+                    <View style={styles.profileCircle}>
+                        <Ionicons name="person-circle-outline" size={32} color="#1A1A1A" />
+                    </View>
                 </TouchableOpacity>
             </View>
 
-            {/* Grid List */}
-            <FlatList
-                data={displayData}
-                renderItem={renderCameraCard}
-                keyExtractor={item => item.id.toString()}
-                numColumns={2}
-                columnWrapperStyle={styles.row}
-                contentContainerStyle={styles.listPadding}
-                ListEmptyComponent={<Text style={styles.emptyText}>No cameras added yet.</Text>}
-            />
+            {/* Discovery Section */}
+            <View style={styles.discoverySection}>
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>Available Cameras</Text>
+                    <TouchableOpacity onPress={fetchDiscoveredCameras} disabled={isScanning}>
+                        {isScanning ? (
+                            <ActivityIndicator size="small" color="#007AFF" />
+                        ) : (
+                            <Ionicons name="refresh" size={20} color="#007AFF" />
+                        )}
+                    </TouchableOpacity>
+                </View>
 
-            {/* The Morphing Pro FAB */}
-            <TouchableOpacity 
-                style={[styles.fab, isEditing ? styles.fabDone : styles.fabAdd]} 
-                onPress={handleFabPress}
-            >
-                <Ionicons 
-                    name={isEditing ? "checkmark-sharp" : "create-outline"} 
-                    size={32} 
-                    color="white" 
-                />
-            </TouchableOpacity>
-
-            <EditCameraModal 
-                visible={isModalVisible} 
-                onClose={() => setIsModalVisible(false)} 
-            />
+                {discoveredCameras && discoveredCameras.length > 0 ? (
+                    <FlatList
+                        data={discoveredCameras}
+                        renderItem={renderCamPreview}
+                        keyExtractor={item => item.index.toString()}
+                        contentContainerStyle={styles.discoveryList}
+                        numColumns={2} // Vertical grid like original, but for discovery
+                        columnWrapperStyle={styles.row}
+                    />
+                ) : (
+                    <View style={styles.emptyDiscovery}>
+                        <Text style={styles.emptyText}>No cameras detected</Text>
+                    </View>
+                )}
+            </View>
         </View>
     );
 }
@@ -168,7 +169,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F8F9FB', // Modern light grey
+        backgroundColor: '#F8F9FB',
     },
     topBar: {
         flexDirection: 'row',
@@ -177,162 +178,129 @@ const styles = StyleSheet.create({
         paddingHorizontal: 25,
         paddingTop: 60,
         paddingBottom: 20,
-        backgroundColor: '#FFF',
+        backgroundColor: '#32b4e3', // lighter blue banner
+        borderBottomWidth: 1,
+        borderBottomColor: '#B7D4FF',
     },
     welcomeText: {
         fontSize: 14,
-        color: '#8E8E93',
+        color: '#1D477D', // darker blue text
         fontWeight: '500',
     },
     headerTitle: {
         fontSize: 28,
         fontWeight: '800',
-        color: '#1A1A1A',
+        color: '#d3dae3', // strong contrast against blue
     },
-    listPadding: {
+    profileBtn: {
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    profileCircle: {
+        width: 42,
+        height: 42,
+        borderRadius: 26,
+        backgroundColor: '#ffffff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#0A3D7E',
+        shadowOpacity: 0.08,
+        shadowOffset: { width: 0, height: 3 },
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    discoverySection: {
+        flex: 1,
+        backgroundColor: '#FFF',
+        paddingTop: 24,
+        paddingBottom: 24,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         paddingHorizontal: 20,
-        paddingTop: 20,
+        marginBottom: 16,
+    },
+    sectionTitle: { 
+        fontSize: 13, 
+        fontWeight: '700', 
+        color: '#8E8E93', 
+        letterSpacing: 0.5,
+        textTransform: 'uppercase'
+    },
+    discoveryList: { 
+        paddingHorizontal: 20,
     },
     row: {
         justifyContent: 'space-between',
-    },
-    cameraCard: {
-        width: COLUMN_WIDTH,
-        backgroundColor: '#FFF',
-        borderRadius: 24,
-        padding: 16,
         marginBottom: 20,
-        height: 160,
-        justifyContent: 'space-between',
-        position: 'relative',
-        // High-end soft shadow
+    },
+    discoveryCard: {
+        backgroundColor: '#FFF',
+        borderRadius: 18,
+        width: (width - 60) / 2, // Match original column width
+        marginBottom: 20, 
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-        elevation: 2,
-    },
-    deleteBadge: {
-        position: 'absolute',
-        top: -10,      // Pulls it above the card top
-        right: -10,    // Pulls it past the card right
-        backgroundColor: '#FF3B30', // System Red
-        width: 28,
-        height: 28,
-        borderRadius: 14,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 3,
-        borderColor: '#F8F9FB', // Match this to your background color for a "cutout" look
-        zIndex: 10,     // Ensures it stays on top of the card
-        elevation: 5,   // Shadow for Android
-    },
-    miniEditBtn: {
-        backgroundColor: '#007AFF',
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    editingCard: {
-        borderWidth: 2,
-        borderColor: '#007AFF',
-        backgroundColor: '#F0F7FF',
-    },
-    addCard: {
-        width: COLUMN_WIDTH,
-        height: 160,
-        backgroundColor: '#FFF',
-        borderRadius: 24,
-        marginBottom: 20,
-        borderStyle: 'dashed',
-        borderWidth: 1.5,
-        borderColor: '#D1D1D6',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    addCardContent: {
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    shadowCircle: {
-        // This creates the soft gray shadow "halo"
-        shadowColor: 'rgb(222, 224, 226)',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.05,
+        shadowOpacity: 0.08,
         shadowRadius: 8,
-        elevation: 10, // Shadow for Android
-        marginBottom: 12,
+        elevation: 3,
+        borderWidth: 1,
+        borderColor: '#F2F2F7',
     },
-    blackCircle: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        backgroundColor: '#dddada', // Bold Solid Black
-        justifyContent: 'center',
+    imageWrapper: {
+        width: '100%',
+        height: 124,
+        borderTopLeftRadius: 18,
+        borderTopRightRadius: 18,
+        overflow: 'hidden',
+        backgroundColor: '#F2F2F7',
+    },
+    previewImage: {
+        width: '100%',
+        height: '100%',
+    },
+    previewPlaceholder: {
+        flex: 1,
         alignItems: 'center',
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-    },
-    iconCircle: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
         justifyContent: 'center',
-        alignItems: 'center',
-    },
-    miniEditBtn: {
-        backgroundColor: '#007AFF',
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    cardFooter: {
         gap: 4,
     },
-    cameraName: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#1C1C1E',
-    },
-    statusRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        marginRight: 6,
-    },
-    statusText: {
-        fontSize: 12,
-        fontWeight: '600',
+    previewPlaceholderText: {
         color: '#8E8E93',
-        textTransform: 'uppercase',
+        fontSize: 11,
+        fontWeight: '500',
     },
-    fab: {
-        position: 'absolute',
-        right: 25,
-        bottom: 40,
-        width: 64,
-        height: 64,
-        borderRadius: 24, // Squircle shape
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#007AFF',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        elevation: 10,
+    cardContent: {
+        padding: 14,
     },
-    fabAdd: { backgroundColor: '#1A1A1A' },
-    fabDone: { backgroundColor: '#4CAF50' },
-    emptyText: { textAlign: 'center', color: '#8E8E93', marginTop: 100 },
+    discoveryInfo: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        marginBottom: 2 
+    },
+    discoveryText: { 
+        fontSize: 15, 
+        fontWeight: '700', 
+        color: '#1C1C1E',
+        flex: 1,
+        marginLeft: 6
+    },
+    discoverySubtext: { 
+        fontSize: 12, 
+        color: '#8E8E93', 
+        fontWeight: '500',
+        marginLeft: 26
+    },
+    emptyDiscovery: { 
+        paddingHorizontal: 20, 
+        paddingVertical: 20,
+        alignItems: 'center'
+    },
+    emptyText: { 
+        color: '#C7C7CC', 
+        fontSize: 14, 
+        fontWeight: '500' 
+    },
 });

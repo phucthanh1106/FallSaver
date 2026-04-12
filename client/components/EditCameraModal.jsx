@@ -1,60 +1,98 @@
-import React from 'react';
 import { 
   Modal, 
   View, 
   Text, 
   FlatList, 
+  Image,
   TouchableOpacity, 
   StyleSheet, 
   ActivityIndicator 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
+import supabase from "../config/supabaseClient.js";
 
-export default function EditCameraModal({ 
-    visible, 
-    onClose, 
-    cameras, 
-    unlinkedHardware, // Logic: The list from FastAPI /scan
-    isScanning        // Logic: Loading state for the scan
-}) {
 
-    // LOGIC TO BE WRITTEN BY YOU:
-    const handleRefresh = () => { /* Logic to trigger FastAPI /scan again */ };
-    const handleAddHardware = (hw) => { /* Logic to save new hardware to Supabase */ };
+export default function EditCameraModal({ visible, onClose }) {
+    const [discoveredCameras, setDiscoveredCameras] = useState(null)
+    const [isScanning, setIsScanning] = useState(false);
+
+    const fetchDiscoveredCameras = async () => {
+        setIsScanning(true);
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/cameras/scan');
+            const data = await response.json();
+            setDiscoveredCameras(data);
+            console.log(data);
+        } catch (err) {
+            console.warn('Failed to scan cameras', err);
+            setDiscoveredCameras([]);
+        } finally {
+            setIsScanning(false);
+        }
+    };
+
+    // Scan for cameras right away when the modal is mounted
+    useEffect(() => {
+        if (visible) {
+            fetchDiscoveredCameras();
+        }
+    }, [visible]); // Only runs when the 'visible' prop changes (modal opens)
+
+
+    // Handle refresh button to rescan available cameras
+    const handleRefresh = async () => { 
+        await fetchDiscoveredCameras();
+    };
+
+    // Handle refresh button to rescan available cameras
+    const handleAddCamera = async (item) => { 
+        const { data, error } = await supabase
+            .from('cameras')
+            .insert()
+    };
+
     const handleDelete = (id) => { /* Your Supabase Delete Logic */ };
     const handleUpdate = (id) => { /* Your Supabase Update Logic */ };
 
-    // Renders the new hardware found on the network/USB
-    const renderDiscoveryItem = ({ item }) => (
-        <TouchableOpacity 
-            style={styles.discoveryCard} 
-            onPress={() => handleAddHardware(item)}
-        >
-            <View style={styles.discoveryInfo}>
-                <Ionicons name="add-circle" size={20} color="#007AFF" />
-                <Text style={styles.discoveryText}>{item.name}</Text>
-            </View>
-            <Text style={styles.discoverySubtext}>{item.resolution}</Text>
-        </TouchableOpacity>
-    );
+    // Renders the new cameras found on the network/USB
+    const renderDiscoveryItem = ({ item }) => {
+        const previewUri = item.frame
+            ? `data:image/jpeg;base64,${item.frame}`
+            : null;
+        
+        return (
+            <TouchableOpacity 
+                style={styles.discoveryCard} 
+                onPress={() => handleAddCamera(item)}
+            >
+                <View style={styles.imageWrapper}>
+                    {previewUri ? (
+                        <Image
+                            source={{ uri: previewUri }}
+                            style={styles.previewImage}
+                            resizeMode="cover"
+                        />
+                    ) : (
+                        <View style={styles.previewPlaceholder}>
+                            <Text style={styles.previewPlaceholderText}>
+                                No preview
+                            </Text>
+                        </View>
+                    )}
+                </View>
 
-    // Renders existing cameras saved in Supabase
-    const renderEditItem = ({ item }) => (
-        <View style={styles.editRow}>
-            <View style={styles.itemInfo}>
-                <Text style={styles.itemText}>{item.location}</Text>
-                <Text style={styles.subText}>{item.name} (Index: {item.hardware_index})</Text>
-            </View>
-            <View style={styles.actionGroup}>
-                <TouchableOpacity onPress={() => handleUpdate(item.id)}>
-                    <Ionicons name="create-outline" size={22} color="#007AFF" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(item.id)}>
-                    <Ionicons name="trash-outline" size={22} color="#FF3B30" />
-                </TouchableOpacity>
-            </View>
-        </View>
-    );
+                <View style={styles.cardContent}>
+                    <View style={styles.discoveryInfo}>
+                        <Ionicons name="add-circle" size={20} color="#007AFF" />
+                        <Text style={styles.discoveryText}>{item.name || `Camera ${item.id}`}</Text>
+                    </View>
+                    <Text style={styles.discoverySubtext}>{item.resolution || item.uri || 'Local camera'}</Text>
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
 
     return (
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
@@ -80,14 +118,13 @@ export default function EditCameraModal({
                         </TouchableOpacity>
                     </View>
 
-                    {unlinkedHardware && unlinkedHardware.length > 0 ? (
+                    {discoveredCameras && discoveredCameras.length > 0 ? (
                         <FlatList
-                            data={unlinkedHardware}
+                            data={discoveredCameras}
                             renderItem={renderDiscoveryItem}
                             keyExtractor={item => item.id.toString()}
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
                             contentContainerStyle={styles.discoveryList}
+                            scrollEnabled={true}
                         />
                     ) : (
                         <View style={styles.emptyDiscovery}>
@@ -95,77 +132,132 @@ export default function EditCameraModal({
                         </View>
                     )}
                 </View>
-
-                {/* 2. SAVED CAMERAS SECTION */}
-                <View style={styles.savedSection}>
-                    <Text style={[styles.sectionTitle, { marginLeft: 20, marginBottom: 10 }]}>
-                        Saved Devices
-                    </Text>
-                    <FlatList
-                        data={cameras}
-                        renderItem={renderEditItem}
-                        keyExtractor={item => item.id.toString()}
-                    />
-                </View>
             </View>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
-    modalContainer: { flex: 1, backgroundColor: '#F2F2F7' },
+    modalContainer: { flex: 1, backgroundColor: '#F8F9FB' },
     header: { 
         flexDirection: 'row', 
         justifyContent: 'space-between', 
-        padding: 20, 
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 16,
         backgroundColor: '#FFF',
         borderBottomWidth: 1,
-        borderBottomColor: '#E5E5EA'
+        borderBottomColor: '#F2F2F7',
     },
-    title: { fontSize: 20, fontWeight: 'bold' },
-    doneBtn: { color: '#007AFF', fontWeight: '600', fontSize: 16 },
+    title: { fontSize: 19, fontWeight: '700', color: '#1C1C1E' },
+    doneBtn: { color: '#007AFF', fontWeight: '600', fontSize: 17 },
     
-    // Discovery Styles
     discoverySection: {
         backgroundColor: '#FFF',
-        paddingVertical: 20,
-        marginBottom: 20,
+        paddingTop: 24,
+        paddingBottom: 24,
+        borderBottomWidth: 1,
+        borderBottomColor: '#F2F2F7',
+        flex: 1,
     },
     sectionHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
         paddingHorizontal: 20,
-        marginBottom: 15,
+        marginBottom: 16,
     },
-    sectionTitle: { fontSize: 13, fontWeight: '600', color: '#8E8E93', textTransform: 'uppercase' },
-    discoveryList: { paddingHorizontal: 15 },
+    sectionTitle: { 
+        fontSize: 13, 
+        fontWeight: '700', 
+        color: '#8E8E93', 
+        letterSpacing: 0.5 
+    },
+    discoveryList: { 
+        paddingHorizontal: 15,
+        paddingBottom: 8, // Room for shadow
+    },
     discoveryCard: {
-        backgroundColor: '#F2F2F7',
-        padding: 15,
-        borderRadius: 12,
-        marginHorizontal: 5,
-        minWidth: 140,
+        backgroundColor: '#FFF',
+        borderRadius: 18,
+        marginHorizontal: 6,
+        width: '100%',
+        marginBottom: 20, 
+        // Soft Shadow
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+        elevation: 3,
         borderWidth: 1,
-        borderColor: '#E5E5EA',
+        borderColor: '#F2F2F7',
     },
-    discoveryInfo: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    discoveryText: { fontSize: 14, fontWeight: '600', marginLeft: 6 },
-    discoverySubtext: { fontSize: 11, color: '#8E8E93', marginLeft: 26 },
-    emptyDiscovery: { paddingHorizontal: 20, paddingBottom: 10 },
-    emptyText: { color: '#C7C7CC', fontSize: 14, fontStyle: 'italic' },
-
-    // Edit Row Styles
-    savedSection: { flex: 1 },
-    editRow: { 
+    imageWrapper: {
+        width: '100%',
+        height: 124,
+        borderTopLeftRadius: 18,
+        borderTopRightRadius: 18,
+        overflow: 'hidden',
+        backgroundColor: '#F2F2F7',
+    },
+    previewImage: {
+        width: '100%',
+        height: '100%',
+    },
+    previewPlaceholder: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+    },
+    previewPlaceholderText: {
+        color: '#8E8E93',
+        fontSize: 11,
+        fontWeight: '500',
+    },
+    newBadge: {
+        position: 'absolute',
+        top: 8,
+        left: 8,
+        backgroundColor: '#007AFF',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+    },
+    newBadgeText: {
+        color: '#FFF',
+        fontSize: 10,
+        fontWeight: '800',
+    },
+    cardContent: {
+        padding: 14,
+    },
+    discoveryInfo: { 
         flexDirection: 'row', 
-        padding: 20, 
-        backgroundColor: '#FFF', 
-        marginBottom: 1, 
         justifyContent: 'space-between',
+        alignItems: 'center', 
+        marginBottom: 2 
+    },
+    discoveryText: { 
+        fontSize: 15, 
+        fontWeight: '700', 
+        color: '#1C1C1E',
+        flex: 1,
+        marginRight: 4
+    },
+    discoverySubtext: { 
+        fontSize: 12, 
+        color: '#8E8E93', 
+        fontWeight: '500' 
+    },
+    emptyDiscovery: { 
+        paddingHorizontal: 20, 
+        paddingVertical: 20,
         alignItems: 'center'
     },
-    itemInfo: { flex: 1 },
-    itemText: { fontSize: 16, fontWeight: '500' },
-    subText: { fontSize: 12, color: '#8E8E93', marginTop: 2 },
-    actionGroup: { flexDirection: 'row', width: 60, justifyContent: 'space-between' }
+    emptyText: { 
+        color: '#C7C7CC', 
+        fontSize: 14, 
+        fontWeight: '500' 
+    },
 });
