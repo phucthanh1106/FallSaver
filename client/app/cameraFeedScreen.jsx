@@ -16,6 +16,7 @@ export default function CameraFeedScreen() {
   const router = useRouter();
   const { cameraIndex, cameraName } = useLocalSearchParams();
   const [isLoading, setIsLoading] = useState(true);
+  
 
   const streamUrl = `http://127.0.0.1:8000/api/cameras/feed/${cameraIndex}`;
 
@@ -47,6 +48,35 @@ export default function CameraFeedScreen() {
     </html>
   `;
 
+  const [activeHtml, setActiveHtml] = useState(htmlContent);
+
+  const handleBack = async () => {
+    console.log("Stopping camera stream...");
+    
+    // Clear the WebView content
+    setActiveHtml('<!DOCTYPE html><html><body style="background-color: #000;"></body></html>');
+
+    // Call server to stop the camera
+    try {
+      const response = await fetch(`http://127.0.0.1:8000/api/cameras/stop/${cameraIndex}`, {
+        method: 'POST',
+      });
+      console.log("Camera stop response:", response.status);
+    } catch (error) {
+      console.log("Error stopping camera:", error.message);
+    }
+
+    // Navigate back
+    setTimeout(() => {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/');
+      }
+    }, 300);
+  };
+
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -67,28 +97,20 @@ export default function CameraFeedScreen() {
 
       {/* Live Feed with WebView */}
       <View style={styles.feedContainer}>
-        <WebView
-          source={{ html: htmlContent }}
-          style={styles.webview}
-          javaScriptEnabled={true}
-          scalesPageToFit={true}
-          onLoadEnd={() => setIsLoading(false)}
-          pointerEvents="none"
-        />
+          <WebView
+            source={{ html: activeHtml }}
+            style={styles.webview}
+            javaScriptEnabled={true}
+            scalesPageToFit={true}
+            onLoadEnd={() => setIsLoading(false)}
+            pointerEvents="none"
+          />
       </View>
 
-        {/* Header - Absolutely positioned on top */}
+      {/* Header - Absolutely positioned on top */}
       <View style={styles.headerOverlay} pointerEvents="box-none">
         <TouchableOpacity 
-          onPress={() => {
-            console.log("going back");
-
-            if (router.canGoBack()) {
-              router.back();
-            } else {
-              router.replace('/'); // fallback
-            }
-          }}
+          onPress={handleBack}
           style={styles.backButton}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >

@@ -7,10 +7,14 @@ from services.log_fall_events import log_fall_events
 from datetime import datetime, timezone, timedelta
 
 # Load the model once
-model = YOLO("yolo26n-pose.pt")
+model = YOLO("yolo26n-pose.onnx", task="pose")
+
 
 # Initialize fall detector
 fall_detector = FallDetector(history_size=40, threshold_angle=36, threshold_drop=0.25)
+
+# Track active camera instances
+active_camera_instances = {}
 
 def show_fps(prev_time, frame):
     """Show FPS on frame"""
@@ -40,8 +44,13 @@ def generate_mjpeg_stream(camera_index):
     """Generator that yields JPEG frames as MJPEG stream with fall detection"""
     cap = cv2.VideoCapture(camera_index)
     
+    # Store the camera instance for later release
+    active_camera_instances[camera_index] = cap
+    
     if not cap.isOpened():
         print("Camera failed to open")
+        if camera_index in active_camera_instances:
+            del active_camera_instances[camera_index]
         return
     
     prev_time = time.time()
@@ -55,7 +64,7 @@ def generate_mjpeg_stream(camera_index):
         frame = cv2.resize(frame, (640, 480))
         
         # Run fall detection model
-        results = model.track(frame, persist=True, device="mps", verbose=False)
+        results = model.track(frame, persist=True, device="cpu", verbose=False)
         r = results[0]
         
         # Draw bounding boxes and keypoints
@@ -180,3 +189,18 @@ def generate_mjpeg_stream(camera_index):
                b'Content-Type: image/jpeg\r\n'
                b'Content-length: ' + str(len(buffer)).encode() + b'\r\n\r\n'
                + buffer.tobytes() + b'\r\n')
+
+
+def release_camera(camera_index):
+    """Release a specific camera and clean up resources"""
+    if camera_index in active_camera_instances:
+        cap = active_camera_instances[camera_index]
+        cap.release()
+        del active_camera_instances[camera_index]
+        print(f"Camera {camera_index} released")
+
+
+def release_all_cameras():
+    """Release all active cameras"""
+    for camera_index in list(active_camera_instances.keys()):
+        release_camera(camera_index)
