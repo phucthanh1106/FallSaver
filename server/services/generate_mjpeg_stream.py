@@ -9,9 +9,8 @@ from datetime import datetime, timezone, timedelta
 # Load the model once
 model = YOLO("yolo26n-pose.onnx", task="pose")
 
-
 # Initialize fall detector
-fall_detector = FallDetector(history_size=40, threshold_angle=36, threshold_drop=0.25)
+fall_detector = FallDetector(history_size=70, threshold_angle=36, threshold_drop=0.25)
 
 # Track active camera instances
 active_camera_instances = {}
@@ -32,7 +31,7 @@ def show_fps(prev_time, frame):
         2
     )
 
-    FALL_WINDOW = int(fps * 1.67)
+    FALL_WINDOW = int(fps * 1.1)
     return prev_time, FALL_WINDOW
 
 
@@ -120,7 +119,7 @@ def generate_mjpeg_stream(camera_index):
                 angles, xywh, conf = fall_detector.get_history(id)
                 
                 # Detect fall
-                if len(angles) >= FALL_WINDOW:
+                if len(angles) >= FALL_WINDOW / 1.4:
                     angle_change, vertical_drop = fall_detector.fall_metrics(
                         angles[-FALL_WINDOW:],
                         xywh[-FALL_WINDOW:],

@@ -22,7 +22,7 @@ class FallDetector:
         upper_avg_y = (key_joints[0][1] + key_joints[1][1]) / 2
 
         # Handle the case when the lower parts are all occluded
-        if conf[2] < 0.1 and conf[3] < 0.1 and conf[4] < 0.1 and conf[5] < 0.1:
+        if conf[2] < 0.1 and conf[3] < 0.1 and conf[4] < 0.25 and conf[5] < 0.25:
             return None
         
         # Ankles visible - use them
@@ -34,7 +34,9 @@ class FallDetector:
             lower_avg_x = (key_joints[2][0] + key_joints[3][0]) / 2
             lower_avg_y = (key_joints[2][1] + key_joints[3][1]) / 2
         else: 
-            return None
+            # return None
+            lower_avg_x = (key_joints[4][0] + key_joints[5][0]) / 2
+            lower_avg_y = (key_joints[4][1] + key_joints[5][1]) / 2
         
         return math.degrees(math.atan2(abs(upper_avg_y - lower_avg_y), abs(upper_avg_x - lower_avg_x)))
 

@@ -1,7 +1,7 @@
 from ultralytics import YOLO
 
 # Load your custom trained or official PyTorch model
-model = YOLO("yolo26n-pose.pt")
+model = YOLO("yolo26s-pose.pt")
 
 # Export to ONNX format
 # setting dynamic=True allows the model to handle different video frame sizes smoothly

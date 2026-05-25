@@ -30,11 +30,11 @@ class FallDetector:
             return None
         
         # Ankles visible - use them
-        if conf[4] > 0.2 and conf[5] > 0.2:
+        if conf[4] > 0.15 and conf[5] > 0.15:
             lower_avg_x = (key_joints[4][0] + key_joints[5][0]) / 2
             lower_avg_y = (key_joints[4][1] + key_joints[5][1]) / 2
         # Hips visible - use them
-        elif conf[2] > 0.2 and conf[3] > 0.2:
+        elif conf[2] > 0.15 and conf[3] > 0.15:
             lower_avg_x = (key_joints[2][0] + key_joints[3][0]) / 2
             lower_avg_y = (key_joints[2][1] + key_joints[3][1]) / 2
         else: 
@@ -114,11 +114,11 @@ model = YOLO("yolo26n-pose.onnx", task="pose")
 fall_detector = FallDetector(history_size=40, threshold_angle=36, threshold_drop=0.25)
 
 # Video source (change to 0 for webcam)
-cap = cv2.VideoCapture("FallDetection/data/random videos/fall17.mp4")
+cap = cv2.VideoCapture("/Users/tyler/FallSaver/FallDetection/data/random videos/fall3.MP4")
 # cap = cv2.VideoCapture(0)
 
 prev_time = time.time()
-FALL_WINDOW = 18
+FALL_WINDOW = 35
 
 
 # ============================================ HELPER FUNCTIONS ============================================
@@ -149,8 +149,11 @@ while True:
         print("Camera is not working properly")
         break
     
+    # Resize frame for faster inference
+    frame = cv2.resize(img, (640, 480))
+    
     # Run fall detection model
-    results = model.track(img, persist=True, device="mps", verbose=False)
+    results = model.track(frame, persist=True, device="cpu", verbose=False)
     r = results[0]
     
     # Draw the frame with annotations
