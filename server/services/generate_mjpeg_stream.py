@@ -1,15 +1,15 @@
 import cv2
-import math
 import time
+from datetime import datetime, timezone, timedelta
+
 from ultralytics import YOLO
+
 from services.fall_detector import FallDetector
 from services.log_fall_events import log_fall_events
-from datetime import datetime, timezone, timedelta
 
 # Load the model once
 model = YOLO("yolo26n-pose.onnx", task="pose")
 
-# Initialize fall detector
 fall_detector = FallDetector(history_size=70, threshold_angle=36, threshold_drop=0.25)
 
 # Track active camera instances
@@ -31,8 +31,7 @@ def show_fps(prev_time, frame):
         2
     )
 
-    FALL_WINDOW = int(fps * 1.1)
-    return prev_time, FALL_WINDOW
+    return prev_time
 
 
 # Add fall event tracking
@@ -48,9 +47,15 @@ def generate_mjpeg_stream(camera_index):
     
     if not cap.isOpened():
         print("Camera failed to open")
+
         if camera_index in active_camera_instances:
             del active_camera_instances[camera_index]
+
         return
+    
+    # Use the camera FPS to create a fixed 1.5-second detection window
+    video_fps = cap.get(cv2.CAP_PROP_FPS) or 25
+    fall_window = max(2, int(video_fps * 1.5))
     
     prev_time = time.time()
 
@@ -79,7 +84,7 @@ def generate_mjpeg_stream(camera_index):
         frame_height, frame_width = annotated_frame.shape[:2]
         
         # Show FPS
-        prev_time, FALL_WINDOW = show_fps(prev_time, annotated_frame)
+        prev_time = show_fps(prev_time, annotated_frame)
         
         # Status tracking for display
         status_text = "OK"
@@ -119,11 +124,11 @@ def generate_mjpeg_stream(camera_index):
                 angles, xywh, conf = fall_detector.get_history(id)
                 
                 # Detect fall
-                if len(angles) >= FALL_WINDOW / 1.4:
+                if len(angles) >= fall_window:
                     angle_change, vertical_drop = fall_detector.fall_metrics(
-                        angles[-FALL_WINDOW:],
-                        xywh[-FALL_WINDOW:],
-                        FALL_WINDOW
+                        angles[-fall_window:],
+                        xywh[-fall_window:],
+                        fall_window
                     )
                     
                     # Display metrics
@@ -146,8 +151,9 @@ def generate_mjpeg_stream(camera_index):
                         2
                     )
                     
+                    is_fall = fall_detector.detect_fall(angles[-fall_window:], xywh, conf, fall_window)
                     # Draw fall detection result
-                    if fall_detector.detect_fall(angles[-FALL_WINDOW:], xywh, conf, FALL_WINDOW):
+                    if is_fall:
                         if len(fall_events_time) == 0:
                             fall_events_time.append(datetime.now(timezone.utc).isoformat())
                             log_fall_events(camera_id=camera_index, angle_change=float(angle_change), vertical_drop=float(vertical_drop))
