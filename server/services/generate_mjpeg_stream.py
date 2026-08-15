@@ -1,16 +1,21 @@
 import cv2
 import time
 from datetime import datetime, timezone, timedelta
-
+import os
+import dotenv
 from ultralytics import YOLO
-
 from services.fall_detector import FallDetector
 from services.log_fall_events import log_fall_events
+
+
+dotenv.load_dotenv()
+THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
+THRESHOLD_DROP = float(os.getenv("THRESHOLD_DROP"))
 
 # Load the model once
 model = YOLO("yolo26n-pose.onnx", task="pose")
 
-fall_detector = FallDetector(history_size=70, threshold_angle=36, threshold_drop=0.25)
+fall_detector = FallDetector(history_size=70, threshold_angle=THRESHOLD_ANGLE, threshold_drop=THRESHOLD_DROP)
 
 # Track active camera instances
 active_camera_instances = {}

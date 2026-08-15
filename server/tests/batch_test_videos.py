@@ -1,11 +1,14 @@
 import argparse
 from pathlib import Path
-
+import os
+import dotenv
 import cv2
 from ultralytics import YOLO
+from test_fall_detector import FallDetector
 
-from fall_detector import FallDetector
-
+dotenv.load_dotenv()
+THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
+THRESHOLD_DROP = float(os.getenv("THRESHOLD_DROP"))
 
 SUPPORTED_VIDEO_TYPES = {
     ".mp4",
@@ -105,8 +108,8 @@ def video_has_fall(
 
     fall_detector = FallDetector(
         history_size=fall_window,
-        threshold_angle=40,
-        threshold_drop=0.28,
+        threshold_angle=THRESHOLD_ANGLE,
+        threshold_drop=THRESHOLD_DROP,
     )
 
     frame_number = 0

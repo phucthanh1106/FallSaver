@@ -26,11 +26,11 @@ class FallDetector:
             return None
         
         # Ankles visible - use them
-        if conf[4] > 0.2 or conf[5] > 0.2:
+        if conf[4] > 0.2 and conf[5] > 0.2:
             lower_avg_x = (key_joints[4][0] + key_joints[5][0]) / 2
             lower_avg_y = (key_joints[4][1] + key_joints[5][1]) / 2
         # Hips visible - use them
-        elif conf[2] > 0.2 or conf[3] > 0.2:
+        elif conf[2] > 0.2 and conf[3] > 0.2:
             lower_avg_x = (key_joints[2][0] + key_joints[3][0]) / 2
             lower_avg_y = (key_joints[2][1] + key_joints[3][1]) / 2
         else: 
@@ -44,17 +44,18 @@ class FallDetector:
         """Calculate fall metrics"""
         # Track the top of the box instead of its center. The top follows the
         # person's upper body and moves farther downward during a fall.
-        average_positions = [( (frame[1].item() - frame[3].item() / 2) + frame[1].item() ) / 2 for frame in xywh[-fall_window:]]
+        average_positions = [( (frame[1].item() - frame[3].item() / 2) + frame[1].item() ) / 2 for frame in xywh]
                 
         max_y = max(average_positions)
         min_y = min(average_positions)
         index_min_y = average_positions.index(min_y)
         index_max_y = average_positions.index(max_y)
 
-        initial_h = xywh[-fall_window:][index_min_y][3].item()
-        initial_w = xywh[-fall_window:][index_min_y][2].item()
+        initial_h = xywh[index_min_y][3].item()
+        initial_w = xywh[index_min_y][2].item()
         last_h = xywh[-len(average_positions) + index_max_y][3].item()
         last_w = xywh[-len(average_positions) + index_max_y][2].item()
+        ave_h = (initial_h + last_h) / 2
 
         # For debugging case
         case = 0
@@ -62,18 +63,22 @@ class FallDetector:
         angle_change = max(angles) - min(angles)
 
         # max_y should be when the person's upper body is closest to the floor.
+        POSTURE_RATIO = 1.15
         initial_ratio = initial_h / initial_w
         last_ratio = last_h / last_w
-        ave_h = (initial_h + last_h) / 2
+        initial_is_vertical = initial_ratio > POSTURE_RATIO
+        last_is_vertical = last_ratio > POSTURE_RATIO
+
 
         if index_max_y > index_min_y and max_y / min_y > 1.15:
             # First standing position then laying  
-            if initial_ratio > 1.15:
+            if initial_is_vertical:
                 vertical_drop = (max_y - min_y) / ave_h
+                # Handling edge cases
                 if vertical_drop > 2:
                     vertical_drop = 0
                 # Handle the normal laying position case
-                if last_w > last_h: 
+                if not last_is_vertical: 
                     case = 1
                 # Handle the final position of person that results in a vertical bounding box
                 else:
@@ -81,7 +86,7 @@ class FallDetector:
             # First laying position then keep laying  
             else:
                 # Handle the case when person switches from lying to standing
-                if last_ratio > 1.15:
+                if last_is_vertical:
                     case = 3
                     vertical_drop = 0
                 # Handle the case when person falling in a horizontal posture
