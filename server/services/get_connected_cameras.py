@@ -1,33 +1,62 @@
-import cv2
-import base64 
-# Base64 is a binary-to-text encoding scheme 
-# that converts binary data (like images or executable files) into a sequence of 64 printable ASCII characters
+import base64
+from urllib.parse import quote
 
-def get_connected_cameras():
+import cv2
+
+
+connected_camera_sources = {}
+
+
+def get_camera_source(camera_index):
+    return connected_camera_sources.get(camera_index, camera_index)
+
+
+def get_connected_cameras(ipv4=None, username=None, password=None):
     available = []
 
-    for i in range(5):
-        cap = cv2.VideoCapture(i)
-        if cap.isOpened():
-            # Let the camera warm up a little bit so the frame looks better
-            for _ in range(10):
+    if ipv4:
+        camera_indexes = range(102, 1003, 100)
+    else:
+        camera_indexes = range(10)
+
+    for camera_index in camera_indexes:
+        if ipv4:
+            authentication = ""
+            if username and password:
+                authentication = f"{quote(username, safe='')}:{quote(password, safe='')}@"
+            source = f"rtsp://{authentication}{ipv4}:554/Streaming/Channels/{camera_index}"
+        else:
+            source = camera_index
+
+        cap = cv2.VideoCapture(source)
+
+        try:
+            if not cap.isOpened():
+                continue
+
+            # Read a few frames so the preview is not the camera's first incomplete frame.
+            for _ in range(3):
                 cap.read()
-            
-            # Now capture the "real" frame
-            success, img = cap.read()
 
-            if success:
-                img = cv2.resize(img, (640, 320))
-                # Convert frame to JPEG
-                _, buffer = cv2.imencode('.jpg', img)
+            success, image = cap.read()
+            if not success:
+                continue
 
-                # Encode to Base64 string
-                frame_base64 = base64.b64encode(buffer).decode('utf-8')
+            image = cv2.resize(image, (640, 320))
 
-                available.append({
-                    "index": i, 
-                    "name": f'Camera {i + 1}',
-                    "frame": frame_base64, 
-                })
+            # Convert frame to JPEG
+            encoded, buffer = cv2.imencode('.jpg', image)
+            if not encoded:
+                continue
+
+            connected_camera_sources[camera_index] = source
+            camera_number = camera_index // 100 if ipv4 else camera_index + 1
+            available.append({
+                "index": camera_index,
+                "name": f"Camera {camera_number}",
+                "frame": base64.b64encode(buffer).decode('utf-8'),
+            })
+        finally:
             cap.release()
+
     return available

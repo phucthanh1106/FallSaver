@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -10,7 +10,8 @@ import {
   ActivityIndicator 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { getCameraConnection } from '../config/cameraConnection.js';
 import supabase from "../config/supabaseClient.js";
 
 const { width } = Dimensions.get('window');
@@ -64,11 +65,21 @@ export default function HomeScreen() {
         console.log("router push working properly")
     }
 
-    const fetchDiscoveredCameras = async () => {
+    const fetchDiscoveredCameras = useCallback(async () => {
         setIsScanning(true);
         // handleDeleteAll("cameras");
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/cameras/scan');
+            const connection = getCameraConnection();
+            const response = await fetch('http://127.0.0.1:8000/api/cameras/scan', connection ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(connection),
+            } : undefined);
+
+            if (!response.ok) {
+                throw new Error(`Camera scan failed with status ${response.status}`);
+            }
+
             const data = await response.json();
             setDiscoveredCameras(data);
             // data.forEach(item => handleAddCam("cameras", item))
@@ -78,11 +89,11 @@ export default function HomeScreen() {
         } finally {
             setIsScanning(false);
         }
-    };
-
-    useEffect(() => {
-        fetchDiscoveredCameras();
     }, []);
+
+    useFocusEffect(useCallback(() => {
+        fetchDiscoveredCameras();
+    }, [fetchDiscoveredCameras]));
 
     const renderCamPreview = ({ item }) => {
         const previewUri = item.frame
@@ -138,13 +149,18 @@ export default function HomeScreen() {
             <View style={styles.discoverySection}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>Available Cameras</Text>
-                    <TouchableOpacity onPress={fetchDiscoveredCameras} disabled={isScanning}>
-                        {isScanning ? (
-                            <ActivityIndicator size="small" color="#007AFF" />
-                        ) : (
-                            <Ionicons name="refresh" size={20} color="#007AFF" />
-                        )}
-                    </TouchableOpacity>
+                    <View style={styles.sectionActions}>
+                        <TouchableOpacity onPress={() => router.push('/cameraAddressScreen')} disabled={isScanning}>
+                            <Ionicons name="add-circle-outline" size={22} color="#007AFF" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={fetchDiscoveredCameras} disabled={isScanning}>
+                            {isScanning ? (
+                                <ActivityIndicator size="small" color="#007AFF" />
+                            ) : (
+                                <Ionicons name="refresh" size={20} color="#007AFF" />
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {discoveredCameras && discoveredCameras.length > 0 ? (
@@ -159,6 +175,10 @@ export default function HomeScreen() {
                 ) : (
                     <View style={styles.emptyDiscovery}>
                         <Text style={styles.emptyText}>No cameras detected</Text>
+                        <TouchableOpacity style={styles.connectButton} onPress={() => router.push('/cameraAddressScreen')}>
+                            <Ionicons name="add" size={20} color="#FFF" />
+                            <Text style={styles.connectButtonText}>Connect cameras</Text>
+                        </TouchableOpacity>
                     </View>
                 )}
             </View>
@@ -228,6 +248,11 @@ const styles = StyleSheet.create({
         color: '#8E8E93', 
         letterSpacing: 0.5,
         textTransform: 'uppercase'
+    },
+    sectionActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 16,
     },
     discoveryList: { 
         paddingHorizontal: 20,
@@ -301,6 +326,21 @@ const styles = StyleSheet.create({
     emptyText: { 
         color: '#C7C7CC', 
         fontSize: 14, 
-        fontWeight: '500' 
+        fontWeight: '500',
+        marginBottom: 18,
+    },
+    connectButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#007AFF',
+        paddingHorizontal: 18,
+        height: 46,
+        borderRadius: 14,
+    },
+    connectButtonText: {
+        color: '#FFF',
+        fontSize: 15,
+        fontWeight: '700',
     },
 });

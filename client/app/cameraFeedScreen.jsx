@@ -79,22 +79,6 @@ export default function CameraFeedScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      {/* <View style={styles.header}>
-        <TouchableOpacity onPress={() => {
-          console.log("going back");
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace('/');
-          }
-        }}>
-          <Ionicons name="chevron-back" size={20} color="#FFF" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{cameraName}</Text>
-        <View style={{ width: 28 }} />
-      </View> */}
-
       {/* Live Feed with WebView */}
       <View style={styles.feedContainer}>
           <WebView
@@ -119,22 +103,6 @@ export default function CameraFeedScreen() {
         <Text style={styles.headerTitle}>{cameraName}</Text>
         <View style={{ width: 28 }} />
       </View>
-
-      {/* Controls */}
-      {/* <View style={styles.controlsContainer}>
-        <TouchableOpacity style={styles.controlButton}>
-          <Ionicons name="camera" size={24} color="#FFF" />
-          <Text style={styles.buttonText}>Screenshot</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton}>
-          <Ionicons name="recording" size={24} color="#FF3B30" />
-          <Text style={styles.buttonText}>Record</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.controlButton}>
-          <Ionicons name="settings" size={24} color="#FFF" />
-          <Text style={styles.buttonText}>Settings</Text>
-        </TouchableOpacity>
-      </View> */}
     </View>
   );
 }

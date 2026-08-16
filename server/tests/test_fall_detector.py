@@ -69,7 +69,6 @@ class FallDetector:
         initial_is_vertical = initial_ratio > POSTURE_RATIO
         last_is_vertical = last_ratio > POSTURE_RATIO
 
-
         if index_max_y > index_min_y and max_y / min_y > 1.15:
             # First standing position then laying  
             if initial_is_vertical:

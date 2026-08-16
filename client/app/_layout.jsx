@@ -5,6 +5,8 @@ export default function Layout() {
     <Stack>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="cameraFeedScreen" options={{ headerShown: false }} />
+      <Stack.Screen name="cameraAddressScreen" options={{ headerShown: false }} />
+      <Stack.Screen name="cameraCredentialsScreen" options={{ headerShown: false }} />
     </Stack>
   );
 }
