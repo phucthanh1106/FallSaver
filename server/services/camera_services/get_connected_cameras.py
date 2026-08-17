@@ -28,7 +28,7 @@ def get_connected_cameras(ipv4=None, username=None, password=None):
         else:
             source = camera_index
 
-        cap = cv2.VideoCapture(source)
+        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
 
         try:
             if not cap.isOpened():

@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableO
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { setCameraConnection } from '../config/cameraConnection.js';
+import supabase from "../config/supabaseClient.js";
 
 function isPrivateIpv4(value) {
     const parts = value.trim().split('.').map(Number);
@@ -19,7 +20,7 @@ export default function CameraAddressScreen() {
     const [error, setError] = useState('');
     const router = useRouter();
 
-    const handleContinue = () => {
+    const handleContinue = async () => {
         const cleanIpv4 = ipv4.trim();
         if (!isPrivateIpv4(cleanIpv4)) {
             setError('Enter a private IPv4 address, such as 192.168.1.9.');
@@ -30,8 +31,25 @@ export default function CameraAddressScreen() {
             router.push({ pathname: '/cameraCredentialsScreen', params: { ipv4: cleanIpv4 } });
             return;
         }
+        
 
         setCameraConnection({ ipv4: cleanIpv4 });
+        // If this connection does not need authentication, then only save the ipv4 address to the database
+        const { data: { user } } = await supabase.auth.getUser();
+
+        const { data: connection, error } = await supabase
+            .from('camera_connections')
+            .upsert({
+                user_id: user.id,
+                ipv4: cleanIpv4,
+            }, { onConflict: 'user_id,ipv4' })
+            .select('id')
+            .single();
+        
+        if (error) {
+            console.log("IPv4 failed to save", error);
+        }
+        
         router.dismissAll();
     };
 

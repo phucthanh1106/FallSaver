@@ -9,6 +9,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
+import { authenticatedFetch } from '../config/authenticatedFetch.js';
+
 
 const { width, height } = Dimensions.get('window');
 
@@ -17,7 +19,6 @@ export default function CameraFeedScreen() {
   const { cameraIndex, cameraName } = useLocalSearchParams();
   const [isLoading, setIsLoading] = useState(true);
   
-
   const streamUrl = `http://127.0.0.1:8000/api/cameras/feed/${cameraIndex}`;
 
   const htmlContent = `
@@ -58,7 +59,7 @@ export default function CameraFeedScreen() {
 
     // Call server to stop the camera
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/cameras/stop/${cameraIndex}`, {
+      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/stop/${cameraIndex}`, {
         method: 'POST',
       });
       console.log("Camera stop response:", response.status);

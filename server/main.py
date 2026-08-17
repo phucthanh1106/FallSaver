@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.camera import camera_router 
+import os
+
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 
 app = FastAPI()
 

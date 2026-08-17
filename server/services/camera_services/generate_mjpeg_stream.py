@@ -4,9 +4,9 @@ from datetime import datetime, timezone, timedelta
 import os
 import dotenv
 from ultralytics import YOLO
-from services.fall_detector import FallDetector
-from services.get_connected_cameras import get_camera_source
-from services.log_fall_events import log_fall_events
+from services.fall_services.fall_detector import FallDetector
+from services.camera_services.get_connected_cameras import get_camera_source
+from services.camera_services.log_fall_events import log_fall_events
 
 dotenv.load_dotenv()
 THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
@@ -41,9 +41,12 @@ def show_fps(prev_time, frame):
 fall_events_time = {}
 
 
-def generate_mjpeg_stream(camera_index):
+def generate_mjpeg_stream(camera_index, connection):
     """Generator that yields JPEG frames as MJPEG stream with fall detection"""
-    cap = cv2.VideoCapture(get_camera_source(camera_index))
+    if not connection:
+        cap = cv2.VideoCapture(get_camera_source(camera_index))
+    else:
+        cap = cv2.VideoCapture()
     
     # Store the camera instance for later release
     active_camera_instances[camera_index] = cap

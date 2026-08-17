@@ -3,6 +3,8 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableO
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setCameraConnection } from '../config/cameraConnection.js';
+import supabase from "../config/supabaseClient.js";
+import * as SecureStore from 'expo-secure-store';
 
 export default function CameraCredentialsScreen() {
     const { ipv4 } = useLocalSearchParams();
@@ -12,13 +14,46 @@ export default function CameraCredentialsScreen() {
     const [error, setError] = useState('');
     const router = useRouter();
 
-    const handleConnect = () => {
+    const handleConnect = async () => {
         if (!username.trim() || !password) {
             setError('Enter both the username and password.');
             return;
         }
 
-        setCameraConnection({ ipv4, username: username.trim(), password });
+        // Get tge user in this session
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setError('You must sign in before connecting cameras.');
+            return;
+        }
+
+        const { data: connection, error: connectionError } = await supabase
+            .from('camera_connections')
+            .upsert({
+                user_id: user.id,
+                ipv4,
+                username: username.trim(),
+            }, { onConflict: 'user_id,ipv4' })
+            .select('id')
+            .single();
+
+
+        if (connectionError || !connection) {
+            console.warn('Failed to save camera connection:', connectionError);
+            setError(connectionError?.message || 'Failed to save camera connection.');
+            return;
+        }
+
+        await SecureStore.setItemAsync(`camera-password-${user.id}-${connection.id}`, password);
+
+        setCameraConnection({
+            connectionId: connection.id,
+            ipv4,
+            username: username.trim(),
+            password,
+        });
+
         router.dismissAll();
     };
 

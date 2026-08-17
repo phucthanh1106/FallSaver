@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -7,19 +7,145 @@ import {
   Image,
   TouchableOpacity, 
   Dimensions,
-  ActivityIndicator 
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { getCameraConnection } from '../config/cameraConnection.js';
 import supabase from "../config/supabaseClient.js";
+import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import EditCameraModal from '../components/EditCameraModal.jsx';
+import * as SecureStore from 'expo-secure-store';
 
 const { width } = Dimensions.get('window');
 
 export default function HomeScreen() {
     const [discoveredCameras, setDiscoveredCameras] = useState([]);
     const [isScanning, setIsScanning] = useState(false);
+    const [isEditModalVisible, setIsEditModalVisible] = useState(false);
     const router = useRouter();
+
+    // Load saved cameras, then ask the server to replace their old previews with fresh frames.
+    const fetchSavedCameras = useCallback(async () => {
+        setIsScanning(true);
+
+        try {
+            const savedResponse = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan');
+
+            if (!savedResponse.ok) {
+                throw new Error(`Saved camera request failed with status ${savedResponse.status}`);
+            }
+
+            const savedCameras = await savedResponse.json();
+
+            if (savedCameras.length === 0) {
+                setDiscoveredCameras([]);
+                return [];
+            }
+
+            const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                throw new Error('You must sign in before loading camera previews.');
+            }
+
+            const connectionIds = [...new Set(savedCameras.map(camera => camera.connection_id).filter(Boolean))];
+
+            if (connectionIds.length === 0) {
+                setDiscoveredCameras(savedCameras);
+                return savedCameras;
+            }
+
+            const scanResults = await Promise.all(connectionIds.map(async connectionId => {
+                const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
+
+                try {
+                    const scanResponse = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan/saved', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ connection_id: connectionId, password: password || null }),
+                    });
+
+                    if (!scanResponse.ok) {
+                        console.warn(`Camera connection ${connectionId} scan failed with status ${scanResponse.status}. Using the saved previews.`);
+                        return [];
+                    }
+
+                    return await scanResponse.json();
+                } catch (scanError) {
+                    console.warn(`Camera connection ${connectionId} scan failed. Using the saved previews:`, scanError);
+                    return [];
+                }
+            }));
+
+            const refreshedCameras = new Map(scanResults.flat().map(camera => [camera.id, camera]));
+            const camerasWithLatestFrames = savedCameras.map(camera => refreshedCameras.get(camera.id) || camera);
+
+            setDiscoveredCameras(camerasWithLatestFrames);
+            return camerasWithLatestFrames;
+        } catch (error) {
+            console.warn('Failed to load saved cameras:', error);
+            setDiscoveredCameras([]);
+            return [];
+        } finally {
+            setIsScanning(false);
+        }
+    }, []);
+
+    // This is for the refresh button in home screen
+    const fetchDiscoveredCameras = useCallback(async () => {
+        console.log("damn");
+        const connection = getCameraConnection();
+
+        setIsScanning(true);
+        try {
+            if (!connection) {
+                await fetchSavedCameras();
+                setIsScanning(false);
+                return;
+            }
+
+            const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan', connection ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(connection),
+            } : {});
+
+            if (!response.ok) {
+                throw new Error(`Camera scan failed with status ${response.status}`);
+            }
+
+            const data = await response.json();
+            setDiscoveredCameras(data);
+
+            if (data.length > 0) {
+                try {
+                    await handleAddCameras(data);
+                } catch (saveError) {
+                    console.warn('Cameras were detected but could not be saved:', saveError);
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to scan cameras', err);
+            setDiscoveredCameras([]);
+        } finally {
+            setIsScanning(false);
+        }
+    }, [fetchSavedCameras]);
+
+    // This runs when the home screen first mounted and when references in fetchSavedCameras change
+    useEffect(() => {
+        fetchSavedCameras();
+    }, [fetchSavedCameras]);
+
+    // -----------------------------------Basic funtions for the home screen-----------------------------------
+    const handleSignOut = () => {
+        Alert.alert('Sign out', 'Do you want to sign out of Fall Saver?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Sign out', style: 'destructive', onPress: async () => await supabase.auth.signOut() },
+        ]);
+    };
 
     // !!!!! THIS WILL DELETE ALL ROWS IN A TABLE
     const handleDeleteAll = async (category) => {
@@ -37,20 +163,31 @@ export default function HomeScreen() {
         }
     }
 
-    /// Add new cameras to the database
-    const handleAddCam = async (category, item) => {
-        const { data, error } = await supabase
-            .from(category)
-            .insert([{ index: item.index, frame: item.frame }])
+    // Add newly discovered cameras to the database
+    const handleAddCameras = async (cameras) => {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            throw new Error('You must sign in before saving cameras.');
+        }
+
+        const connection = getCameraConnection();
+
+        const cameraRows = cameras.map(camera => ({
+            user_id: user.id,
+            index: camera.index,
+            frame: camera.frame,
+            connection_id: connection.connectionId,
+        }));
+
+        const { error } = await supabase
+            .from('cameras')
+            .upsert(cameraRows, { onConflict: 'user_id,index' });
 
         if (error) {
-            console.log(error);
-        } 
-
-        if (data) {
-            console.log(data);
+            throw error;
         }
-    }
+    };
 
     // When click on a preview of a camera, navigate the user to a page that displays that camera live
     const handleGoToLiveFeed = async (item) => {
@@ -65,35 +202,15 @@ export default function HomeScreen() {
         console.log("router push working properly")
     }
 
-    const fetchDiscoveredCameras = useCallback(async () => {
-        setIsScanning(true);
-        // handleDeleteAll("cameras");
-        try {
-            const connection = getCameraConnection();
-            const response = await fetch('http://127.0.0.1:8000/api/cameras/scan', connection ? {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(connection),
-            } : undefined);
+    // Deleting a camera
+    const handleCameraDeleted = (deletedCamera) => {
+        setDiscoveredCameras(currentCameras => currentCameras.filter(camera => String(camera.index) !== String(deletedCamera.index)));
+    };
 
-            if (!response.ok) {
-                throw new Error(`Camera scan failed with status ${response.status}`);
-            }
-
-            const data = await response.json();
-            setDiscoveredCameras(data);
-            // data.forEach(item => handleAddCam("cameras", item))
-        } catch (err) {
-            console.warn('Failed to scan cameras', err);
-            setDiscoveredCameras([]);
-        } finally {
-            setIsScanning(false);
-        }
-    }, []);
-
-    useFocusEffect(useCallback(() => {
-        fetchDiscoveredCameras();
-    }, [fetchDiscoveredCameras]));
+    // Updating a camera
+    const handleCameraUpdated = (updatedCamera) => {
+        setDiscoveredCameras(currentCameras => currentCameras.map(camera => String(camera.index) === String(updatedCamera.index) ? { ...camera, name: updatedCamera.name } : camera));
+    };
 
     const renderCamPreview = ({ item }) => {
         const previewUri = item.frame
@@ -123,7 +240,7 @@ export default function HomeScreen() {
 
                 <View style={styles.cardContent}>
                     <View style={styles.discoveryInfo}>
-                        <Text style={styles.discoveryText}>{item.name || `Camera ${item.id}`}</Text>
+                        <Text style={styles.discoveryText}>{item.name || `Camera ${item.index}`}</Text>
                     </View>
                 </View>
             </TouchableOpacity>
@@ -138,7 +255,7 @@ export default function HomeScreen() {
                     <Text style={styles.welcomeText}>Welcome Home,</Text>
                     <Text style={styles.headerTitle}>Fall Saver</Text>
                 </View>
-                <TouchableOpacity style={styles.profileBtn}>
+                <TouchableOpacity style={styles.profileBtn} onPress={handleSignOut}>
                     <View style={styles.profileCircle}>
                         <Ionicons name="person-circle-outline" size={32} color="#1A1A1A" />
                     </View>
@@ -182,6 +299,12 @@ export default function HomeScreen() {
                     </View>
                 )}
             </View>
+
+            <TouchableOpacity style={styles.editButton} onPress={() => setIsEditModalVisible(true)} accessibilityLabel="Manage saved cameras">
+                <Ionicons name="pencil" size={24} color="#FFF" />
+            </TouchableOpacity>
+
+            <EditCameraModal visible={isEditModalVisible} onClose={() => setIsEditModalVisible(false)} onCameraDeleted={handleCameraDeleted} onCameraUpdated={handleCameraUpdated} />
         </View>
     );
 }
@@ -256,6 +379,7 @@ const styles = StyleSheet.create({
     },
     discoveryList: { 
         paddingHorizontal: 20,
+        paddingBottom: 90,
     },
     row: {
         justifyContent: 'space-between',
@@ -342,5 +466,21 @@ const styles = StyleSheet.create({
         color: '#FFF',
         fontSize: 15,
         fontWeight: '700',
+    },
+    editButton: {
+        position: 'absolute',
+        right: 22,
+        bottom: 28,
+        width: 58,
+        height: 58,
+        borderRadius: 29,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#007AFF',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 7,
+        elevation: 6,
     },
 });
