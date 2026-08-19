@@ -31,9 +31,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 
 def get_user_database(credentials: HTTPAuthorizationCredentials = Depends(security), current_user=Depends(get_current_user)):
+    token = credentials.credentials 
+
     user_supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_PUBLISHABLE_KEY"))
 
     # Verifies the Bearer token.
-    user_supabase.postgrest.auth(credentials.credentials)
-    
+    user_supabase.postgrest.auth(token)
+
     return user_supabase

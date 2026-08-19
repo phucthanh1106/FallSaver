@@ -34,9 +34,10 @@ export default function CameraCredentialsScreen() {
                 user_id: user.id,
                 ipv4,
                 username: username.trim(),
-            }, { onConflict: 'user_id,ipv4' })
+            }, { onConflict: 'user_id, ipv4' })
             .select('id')
             .single();
+        
 
 
         if (connectionError || !connection) {

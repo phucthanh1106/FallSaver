@@ -31,9 +31,13 @@ export default function CameraAddressScreen() {
             router.push({ pathname: '/cameraCredentialsScreen', params: { ipv4: cleanIpv4 } });
             return;
         }
-        
 
-        setCameraConnection({ ipv4: cleanIpv4 });
+        if (error || !connection) {
+            setError(error?.message || 'Failed to save camera connection.');
+            return;
+        }
+
+        setCameraConnection({ ipv4: cleanIpv4, connection_id: connection.connectionId });
         // If this connection does not need authentication, then only save the ipv4 address to the database
         const { data: { user } } = await supabase.auth.getUser();
 

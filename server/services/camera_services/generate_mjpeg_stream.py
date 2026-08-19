@@ -5,7 +5,7 @@ import os
 import dotenv
 from ultralytics import YOLO
 from services.fall_services.fall_detector import FallDetector
-from services.camera_services.get_connected_cameras import get_camera_source
+from services.camera_services.camera_scanner import get_camera_source
 from services.camera_services.log_fall_events import log_fall_events
 
 dotenv.load_dotenv()

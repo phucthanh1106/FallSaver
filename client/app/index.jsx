@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getCameraConnection } from '../config/cameraConnection.js';
+import { getCameraConnection, clearCameraConnection } from '../config/cameraConnection.js';
 import supabase from "../config/supabaseClient.js";
 import { authenticatedFetch } from '../config/authenticatedFetch.js';
 import EditCameraModal from '../components/EditCameraModal.jsx';
@@ -26,67 +26,100 @@ export default function HomeScreen() {
     const [isEditModalVisible, setIsEditModalVisible] = useState(false);
     const router = useRouter();
 
-    // Load saved cameras, then ask the server to replace their old previews with fresh frames.
-    const fetchSavedCameras = useCallback(async () => {
+    // Load saved previews. Only scan live cameras when shouldRefreshFrames is true.
+    const fetchSavedCameras = useCallback(async (shouldRefreshFrames = false) => {
         setIsScanning(true);
 
         try {
-            const savedResponse = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan');
+            // Load the last saved previews directly from Supabase.
+            const { data: savedCameras, error: savedError } = await supabase
+                .from('cameras')
+                .select('id, index, name, frame, connection_id')
+                .order('index');
 
-            if (!savedResponse.ok) {
-                throw new Error(`Saved camera request failed with status ${savedResponse.status}`);
+            if (savedError) {
+                throw savedError;
             }
 
-            const savedCameras = await savedResponse.json();
+            const cameras = savedCameras || [];
+            setDiscoveredCameras(savedCameras);
 
-            if (savedCameras.length === 0) {
-                setDiscoveredCameras([]);
-                return [];
+            // Login stops here. Manual refresh continues below.
+            if (!shouldRefreshFrames || cameras.length === 0) {
+                return cameras;
             }
 
             const { data: { user }, error: userError } = await supabase.auth.getUser();
 
             if (userError || !user) {
-                throw new Error('You must sign in before loading camera previews.');
+                throw new Error('You must sign in before refreshing cameras.');
             }
 
-            const connectionIds = [...new Set(savedCameras.map(camera => camera.connection_id).filter(Boolean))];
-
-            if (connectionIds.length === 0) {
-                setDiscoveredCameras(savedCameras);
-                return savedCameras;
-            }
+            const connectionIds = [...new Set(cameras.map(camera => camera.connection_id).filter(Boolean))];
 
             const scanResults = await Promise.all(connectionIds.map(async connectionId => {
                 const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
 
                 try {
-                    const scanResponse = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan/saved', {
+                    const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan/saved', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ connection_id: connectionId, password: password || null }),
-                    });
+                        body: JSON.stringify({ connection_id: connectionId, password: password || null}),
+                    }, 60000);
 
-                    if (!scanResponse.ok) {
-                        console.warn(`Camera connection ${connectionId} scan failed with status ${scanResponse.status}. Using the saved previews.`);
+                    if (!response.ok) {
                         return [];
                     }
 
-                    return await scanResponse.json();
+                    return await response.json();
                 } catch (scanError) {
-                    console.warn(`Camera connection ${connectionId} scan failed. Using the saved previews:`, scanError);
+                    console.warn(`Could not refresh connection ${connectionId}:`, scanError);
                     return [];
                 }
             }));
 
-            const refreshedCameras = new Map(scanResults.flat().map(camera => [camera.id, camera]));
-            const camerasWithLatestFrames = savedCameras.map(camera => refreshedCameras.get(camera.id) || camera);
+            const scannedCameras = scanResults.flat();
 
-            setDiscoveredCameras(camerasWithLatestFrames);
-            return camerasWithLatestFrames;
+            if (scannedCameras.length === 0) {
+                Alert.alert('Cameras offline', 'Showing the last saved previews.');
+                return cameras;
+            }
+
+            // Save the fresh frames.
+            try {
+                await Promise.all(scannedCameras.map(async camera => {
+                    const { error } = await supabase
+                        .from('cameras')
+                        .update({ frame: camera.frame })
+                        .eq('id', camera.id)
+                        .eq('user_id', user.id);
+
+                    if (error) {
+                        throw error;
+                    }
+                }));
+            } catch (saveError) {
+                console.warn('Fresh frames could not be saved:', saveError);
+            }
+
+            // Keep old previews for connections that failed.
+            const scannedCamerasById = new Map(scannedCameras.map(camera => [camera.id, camera]));
+
+            const camerasToDisplay = cameras.map(camera => {
+                return scannedCamerasById.get(camera.id) || camera;
+            });
+            
+            setDiscoveredCameras(camerasToDisplay);
+            return camerasToDisplay;
         } catch (error) {
-            console.warn('Failed to load saved cameras:', error);
-            setDiscoveredCameras([]);
+            console.warn('Failed to load cameras:', error);
+
+            if (shouldRefreshFrames) {
+                Alert.alert('Cameras offline', 'Showing the last saved previews.');
+            } else {
+                setDiscoveredCameras([]);
+            }
+
             return [];
         } finally {
             setIsScanning(false);
@@ -95,14 +128,12 @@ export default function HomeScreen() {
 
     // This is for the refresh button in home screen
     const fetchDiscoveredCameras = useCallback(async () => {
-        console.log("damn");
         const connection = getCameraConnection();
-
+        
         setIsScanning(true);
         try {
             if (!connection) {
-                await fetchSavedCameras();
-                setIsScanning(false);
+                await fetchSavedCameras(true);
                 return;
             }
 
@@ -110,13 +141,20 @@ export default function HomeScreen() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(connection),
-            } : {});
+            } : {}, 60000);
 
             if (!response.ok) {
                 throw new Error(`Camera scan failed with status ${response.status}`);
             }
 
             const data = await response.json();
+
+            if (data.length === 0) {
+                Alert.alert('Cameras offline', 'Showing the last saved previews.');
+                await fetchSavedCameras();
+                return;
+            }
+
             setDiscoveredCameras(data);
 
             if (data.length > 0) {
@@ -128,7 +166,8 @@ export default function HomeScreen() {
             }
         } catch (err) {
             console.warn('Failed to scan cameras', err);
-            setDiscoveredCameras([]);
+            Alert.alert('Cameras offline', 'Showing the last saved previews.');
+            await fetchSavedCameras();
         } finally {
             setIsScanning(false);
         }
@@ -143,28 +182,16 @@ export default function HomeScreen() {
     const handleSignOut = () => {
         Alert.alert('Sign out', 'Do you want to sign out of Fall Saver?', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign out', style: 'destructive', onPress: async () => await supabase.auth.signOut() },
+            { text: 'Sign out', style: 'destructive', onPress: async () => {
+                clearCameraConnection();
+                await supabase.auth.signOut();
+            }}
         ]);
     };
 
-    // !!!!! THIS WILL DELETE ALL ROWS IN A TABLE
-    const handleDeleteAll = async (category) => {
-        const { data, error } = await supabase
-            .from(category)
-            .delete()
-            .neq('id', 0)
-        
-        if (error) {
-            console.log(error);
-        }
-        
-        if (data) {
-            console.log(data);
-        }
-    }
-
     // Add newly discovered cameras to the database
     const handleAddCameras = async (cameras) => {
+
         const { data: { user }, error: userError } = await supabase.auth.getUser();
 
         if (userError || !user) {
@@ -172,6 +199,10 @@ export default function HomeScreen() {
         }
 
         const connection = getCameraConnection();
+
+        if (!connection?.connectionId) {
+            throw new Error('No camera connection is selected.');
+        }
 
         const cameraRows = cameras.map(camera => ({
             user_id: user.id,
@@ -182,7 +213,7 @@ export default function HomeScreen() {
 
         const { error } = await supabase
             .from('cameras')
-            .upsert(cameraRows, { onConflict: 'user_id,index' });
+            .upsert(cameraRows, { onConflict: 'user_id,connection_id,index' });
 
         if (error) {
             throw error;
@@ -204,12 +235,12 @@ export default function HomeScreen() {
 
     // Deleting a camera
     const handleCameraDeleted = (deletedCamera) => {
-        setDiscoveredCameras(currentCameras => currentCameras.filter(camera => String(camera.index) !== String(deletedCamera.index)));
+        setDiscoveredCameras(currentCameras => currentCameras.filter(camera => camera.id !== deletedCamera.id));
     };
 
     // Updating a camera
     const handleCameraUpdated = (updatedCamera) => {
-        setDiscoveredCameras(currentCameras => currentCameras.map(camera => String(camera.index) === String(updatedCamera.index) ? { ...camera, name: updatedCamera.name } : camera));
+        setDiscoveredCameras(currentCameras => currentCameras.map(camera => camera.id === updatedCamera.id ? { ...camera, name: updatedCamera.name } : camera));
     };
 
     const renderCamPreview = ({ item }) => {
