@@ -132,21 +132,36 @@ export default function HomeScreen() {
         
         setIsScanning(true);
         try {
+            // Not first time inputting connection
             if (!connection) {
                 await fetchSavedCameras(true);
                 return;
+            }   
+
+            // First time inputting connection
+            const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                throw new Error('You must sign in before scanning cameras.');
             }
 
-            const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan', connection ? {
+            // Retrieve the password to send to server
+            const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connection.connectionId}`);
+
+            const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(connection),
-            } : {}, 60000);
+                body: JSON.stringify({
+                    connection_id: connection.connectionId,
+                    password: password || null,
+                }),
+            }, 60000);
 
             if (!response.ok) {
                 throw new Error(`Camera scan failed with status ${response.status}`);
             }
 
+            // Extract data from the response from the server
             const data = await response.json();
 
             if (data.length === 0) {
@@ -155,6 +170,7 @@ export default function HomeScreen() {
                 return;
             }
 
+            // Update state of this component
             setDiscoveredCameras(data);
 
             if (data.length > 0) {

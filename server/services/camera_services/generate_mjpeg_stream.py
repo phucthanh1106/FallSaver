@@ -6,7 +6,7 @@ import dotenv
 from ultralytics import YOLO
 from services.fall_services.fall_detector import FallDetector
 from services.camera_services.camera_scanner import get_camera_source
-from services.camera_services.log_fall_events import log_fall_events
+from services.fall_services.log_fall_events import log_fall_events
 
 dotenv.load_dotenv()
 THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))

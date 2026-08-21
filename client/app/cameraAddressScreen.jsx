@@ -32,16 +32,15 @@ export default function CameraAddressScreen() {
             return;
         }
 
-        if (error || !connection) {
-            setError(error?.message || 'Failed to save camera connection.');
-            return;
-        }
-
-        setCameraConnection({ ipv4: cleanIpv4, connection_id: connection.connectionId });
         // If this connection does not need authentication, then only save the ipv4 address to the database
         const { data: { user } } = await supabase.auth.getUser();
 
-        const { data: connection, error } = await supabase
+        if (userError || !user) {
+            setError('You must sign in before connecting cameras.');
+            return;
+        }
+
+        const { data: connection, error: connectionError } = await supabase
             .from('camera_connections')
             .upsert({
                 user_id: user.id,
@@ -49,10 +48,13 @@ export default function CameraAddressScreen() {
             }, { onConflict: 'user_id,ipv4' })
             .select('id')
             .single();
-        
-        if (error) {
-            console.log("IPv4 failed to save", error);
+
+        if (connectionError || !connection) {
+            setError(connectionError?.message || 'Failed to save camera connection.');
+            return;
         }
+
+        setCameraConnection({ connection_id: connection.connectionId });
         
         router.dismissAll();
     };

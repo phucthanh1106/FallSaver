@@ -13,7 +13,7 @@ password = getpass.getpass("DVR password: ")
 
 url = (
     f"rtsp://{username}:{password}"
-    "@192.168.1.9:554/Streaming/channels/602"
+    "@192.168.1.9:554/Streaming/channels/802"
 )
 
 cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)

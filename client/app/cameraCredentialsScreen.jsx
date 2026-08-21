@@ -50,9 +50,6 @@ export default function CameraCredentialsScreen() {
 
         setCameraConnection({
             connectionId: connection.id,
-            ipv4,
-            username: username.trim(),
-            password,
         });
 
         router.dismissAll();
