@@ -14,15 +14,15 @@ camera_streams_lock = (
 
 # CameraStream manages a camera stream and owns its background thread
 class CameraStream:
-    def __init__(self, camera_id, connection_id, source):
+    def __init__(self, camera_id, source):
         self.camera_id = str(camera_id)
-        self.connection_id = str(connection_id)
         self.source = source
 
         # Shared frame state
         self.latest_frame = None
         self.latest_frame_time = None
         self.online = False
+        self.fps = 15 # Fall back if OpenCV cannot detect the FPS
 
         self.frame_lock = threading.Lock()
         self.frame_ready = threading.Event() # this event means this camera has produced at least one frame
@@ -62,6 +62,14 @@ class CameraStream:
                     # pauses the thread for up to 2 seconds, then continues to the next line if no stop request
                     self.stop_event.wait(2)
                     continue
+
+                detected_fps = cap.get(cv2.CAP_PROP_FPS)
+
+                with self.frame_lock:
+                    if detected_fps and 1 <= detected_fps <= 120:
+                        self.fps = detected_fps
+                    else:
+                        self.fps = 25.0
 
                 # Second loop is for getting the frames continuously from the open connection
                 while not self.stop_event.is_set():
@@ -103,6 +111,7 @@ class CameraStream:
             return {
                 "online": self.online,
                 "latest_frame_time": self.latest_frame_time,
+                "fps": self.fps,
             }
         
     def wait_for_first_frame(self, timeout=5):
@@ -121,7 +130,7 @@ class CameraStream:
 # ============================================================================
 # Helper Functions to interact with the streams from FastAPI routes
 # ============================================================================
-def get_or_start_camera_stream(camera_id, connection_id, source):
+def get_or_start_camera_stream(camera_id, source):
     camera_id = str(camera_id)
 
     # Acquire lock to safely inspect and update the global streams dictionary
@@ -141,7 +150,7 @@ def get_or_start_camera_stream(camera_id, connection_id, source):
         stream.stop()
 
     # Create the replacement stream instance with the new connection details
-    new_stream = CameraStream(camera_id, connection_id, source)
+    new_stream = CameraStream(camera_id, source)
 
     # Re-acquire lock to safely register the newly created stream
     with camera_streams_lock:

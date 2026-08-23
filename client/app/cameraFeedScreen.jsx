@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,56 +10,57 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import supabase from '../config/supabaseClient.js';
 
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function CameraFeedScreen() {
   const router = useRouter();
-  const { cameraIndex, cameraName } = useLocalSearchParams();
-  const [isLoading, setIsLoading] = useState(true);
-  
-  const streamUrl = `http://127.0.0.1:8000/api/cameras/feed/${cameraIndex}`;
+  const { camera_id, connection_id, camera_name } = useLocalSearchParams();
+  const [streamSource, setStreamSource] = useState(null);
+  const [feedError, setFeedError] = useState('');
+  const streamUrl = `http://127.0.0.1:8000/api/cameras/feed/${connection_id}/${camera_id}`;
 
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body {
-          margin: 0;
-          padding: 0;
-          background-color: #000;
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 100vh;
-        }
-        img {
-          max-width: 100%;
-          max-height: 100%;
-          object-fit: contain;
-        }
-      </style>
-    </head>
-    <body>
-      <img src="${streamUrl}" />
-    </body>
-    </html>
-  `;
+  useEffect(() => {
+    let isMounted = true;
 
-  const [activeHtml, setActiveHtml] = useState(htmlContent);
+    const loadAuthenticatedStream = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (error || !session) {
+        setFeedError('You must sign in to view this camera.');
+        return;
+      }
+
+      setStreamSource({
+        uri: streamUrl,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+    };
+
+    loadAuthenticatedStream();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [streamUrl]);
 
   const handleBack = async () => {
     console.log("Stopping camera stream...");
     
     // Clear the WebView content
-    setActiveHtml('<!DOCTYPE html><html><body style="background-color: #000;"></body></html>');
+    setStreamSource({ html: '<!DOCTYPE html><html><body style="background-color: #000;"></body></html>' });
 
     // Call server to stop the camera
     try {
-      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/stop/${cameraIndex}`, {
+      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/stop/${camera_id}`, {
         method: 'POST',
       });
       console.log("Camera stop response:", response.status);
@@ -82,14 +83,23 @@ export default function CameraFeedScreen() {
     <View style={styles.container}>
       {/* Live Feed with WebView */}
       <View style={styles.feedContainer}>
+        {feedError ? (
+          <Text style={styles.feedError}>{feedError}</Text>
+        ) : streamSource ? (
           <WebView
-            source={{ html: activeHtml }}
+            source={streamSource}
             style={styles.webview}
             javaScriptEnabled={true}
             scalesPageToFit={true}
-            onLoadEnd={() => setIsLoading(false)}
+            onError={() => {
+              setFeedError('Could not load the camera feed.');
+            }}
+            onHttpError={({ nativeEvent }) => {
+              setFeedError(`Camera feed request failed with status ${nativeEvent.statusCode}.`);
+            }}
             pointerEvents="none"
           />
+        ) : null}
       </View>
 
       {/* Header - Absolutely positioned on top */}
@@ -101,7 +111,7 @@ export default function CameraFeedScreen() {
         >
           <Ionicons name="chevron-back" size={28} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{cameraName}</Text>
+        <Text style={styles.headerTitle}>{camera_name}</Text>
         <View style={{ width: 28 }} />
       </View>
     </View>
@@ -150,6 +160,12 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
     width: width,
+  },
+  feedError: {
+    color: '#FFF',
+    fontSize: 15,
+    paddingHorizontal: 24,
+    textAlign: 'center',
   },
   controlsContainer: {
     flexDirection: 'row',

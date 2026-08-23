@@ -16,10 +16,11 @@ key = os.getenv("SUPABASE_PUBLISHABLE_KEY")
 # =: The standard assignment operator.
 supabase: Client = create_client(url, key)
 
-def log_fall_events(camera_id, angle_change, vertical_drop):
+def log_fall_events(camera_id, camera_name, angle_change, vertical_drop):
     try:
         data = {
             "camera_id": camera_id,
+            "camera_name": camera_name,
             "angle_change": angle_change,
             "vertical_drop": vertical_drop,
             "fall_detected_at": datetime.now(timezone.utc).isoformat()

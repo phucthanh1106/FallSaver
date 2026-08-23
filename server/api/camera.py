@@ -11,7 +11,7 @@ import time
 from services.camera_services.camera_scanner import scan_cameras
 from services.camera_services.generate_mjpeg_stream import generate_mjpeg_stream, release_camera
 from services.auth_services.auth import get_current_user, get_user_database
-from services.camera_services.stream_manager import get_or_start_camera_stream
+from services.camera_services.stream_manager import get_or_start_camera_stream, get_camera_stream
 
 camera_router = APIRouter()
 active_cameras = {}
@@ -21,29 +21,23 @@ private_networks = (
     IPv4Network("192.168.0.0/16"),
 )
 
-class CameraScanRequest(BaseModel):
-    connection_id: str
+class CameraPasswordRequest(BaseModel):
     password: str | None = None
 
 
-class SavedCameraScanRequest(BaseModel):
-    connection_id: str
-    password: str | None = None
-
-
-@camera_router.get("/scan")
-async def get_saved_cameras(current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+@camera_router.get("/saved")
+def get_saved_cameras(current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     try:
         response = user_database.table("cameras").select("id, index, name, frame, connection_id").eq("user_id", str(current_user.id)).order("index").execute()
         return response.data
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load saved cameras") from error
 
-@camera_router.post("/scan")
-def scan_network_cameras(request: CameraScanRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+@camera_router.post("/discover/{connection_id}")
+def discover_cameras(connection_id: str, request: CameraPasswordRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     try:
         # a user cannot scan another user’s saved connection ID since we do 2 .eq(user_id) and .eq(connection_id)
-        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", request.connection_id).eq("user_id", str(current_user.id)).execute()
+        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load camera connection") from error
 
@@ -63,14 +57,14 @@ def scan_network_cameras(request: CameraScanRequest, current_user=Depends(get_cu
     return scan_cameras(str(ipv4), username, request.password)
 
 
-@camera_router.post("/scan/saved")
-async def scan_saved_cameras(request: SavedCameraScanRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+@camera_router.post("/refresh/{connection_id}")
+def refresh_saved_cameras(connection_id: str, request: CameraPasswordRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     """
     The workflow is: Get all connections + all saved camera indexes =>
     """
     # 1. Query all rows of the connection that match the connection id that the request asks for
     try:
-        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", request.connection_id).eq("user_id", str(current_user.id)).execute()
+        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load the saved camera connection") from error
 
@@ -87,7 +81,7 @@ async def scan_saved_cameras(request: SavedCameraScanRequest, current_user=Depen
 
     # 4. Load the saved cameras and extract the indexes
     try:
-        saved_response = user_database.table("cameras").select("id, index, name, frame, connection_id").eq("user_id", str(current_user.id)).eq("connection_id", request.connection_id).order("index").execute()
+        saved_response = user_database.table("cameras").select("id, index, name, frame, connection_id").eq("user_id", str(current_user.id)).eq("connection_id", connection_id).order("index").execute()
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load saved cameras") from error
 
@@ -109,7 +103,7 @@ async def scan_saved_cameras(request: SavedCameraScanRequest, current_user=Depen
     for camera in saved_response.data:
         camera_index = camera["index"]
         source = f"rtsp://{authentication}{connection['ipv4']}:554/Streaming/Channels/{camera_index}"
-        stream = get_or_start_camera_stream(camera["id"], request.connection_id, source)
+        stream = get_or_start_camera_stream(camera["id"], source)
         camera_stream_pairs.append((camera, stream))
 
     # 7. Getting the frames
@@ -137,23 +131,23 @@ async def scan_saved_cameras(request: SavedCameraScanRequest, current_user=Depen
     return saved_response.data
 
 
-@camera_router.get("/feed/{camera_index}")
-def get_camera_def(camera_index: int, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
-    user_id = current_user.id
-
+@camera_router.get("/feed/{connection_id}/{camera_id}")
+def get_live_feed(camera_id: int, connection_id: str, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     try:
-        cameras_db = user_database.table("cameras").select("connection_id").eq("user_id", user_id).execute()
-        connection_id = cameras_db.data[0]["connection_id"]
-
-        camera_connections = user_database.table("camera_connections").select("ipv4, username, password_secret_id").eq("id", connection_id).execute()
-        return
+        camera_response = user_database.table("cameras").select("id, name").eq("user_id", str(current_user.id)).eq("connection_id", connection_id).eq("id", camera_id).limit(1).execute()
     except Exception as error:
-        raise HTTPException(status_code=500, detail="Could not load saved camera connections") from error
+        raise HTTPException(status_code=500, detail="Could not load camera") from error
 
-    # Store camera index as active
-    active_cameras[camera_index] = True
-    # Stream live MJPEG feed from camera
-    return StreamingResponse(generate_mjpeg_stream(camera_index), media_type="multipart/x-mixed-replace; boundary=frame")
+    if not camera_response.data:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    camera = camera_response.data[0]
+    stream = get_camera_stream(camera_id)
+
+    if stream is None:
+        raise HTTPException(status_code=409, detail="Camera stream has not been started")
+
+    return StreamingResponse(generate_mjpeg_stream(camera_id, camera["name"], stream), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @camera_router.post("/stop/{camera_index}")

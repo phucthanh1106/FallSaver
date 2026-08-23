@@ -57,14 +57,14 @@ export default function HomeScreen() {
 
             const connectionIds = [...new Set(cameras.map(camera => camera.connection_id).filter(Boolean))];
 
-            const scanResults = await Promise.all(connectionIds.map(async connectionId => {
+            const refreshResults = await Promise.all(connectionIds.map(async connectionId => {
                 const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
 
                 try {
-                    const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan/saved', {
+                    const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/refresh/${connectionId}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ connection_id: connectionId, password: password || null}),
+                        body: JSON.stringify({ password: password || null }),
                     }, 60000);
 
                     if (!response.ok) {
@@ -72,22 +72,22 @@ export default function HomeScreen() {
                     }
 
                     return await response.json();
-                } catch (scanError) {
-                    console.warn(`Could not refresh connection ${connectionId}:`, scanError);
+                } catch (refreshError) {
+                    console.warn(`Could not refresh connection ${connectionId}:`, refreshError);
                     return [];
                 }
             }));
 
-            const scannedCameras = scanResults.flat();
+            const refreshedCameras = refreshResults.flat();
 
-            if (scannedCameras.length === 0) {
+            if (refreshedCameras.length === 0) {
                 Alert.alert('Cameras offline', 'Showing the last saved previews.');
                 return cameras;
             }
 
             // Save the fresh frames.
             try {
-                await Promise.all(scannedCameras.map(async camera => {
+                await Promise.all(refreshedCameras.map(async camera => {
                     const { error } = await supabase
                         .from('cameras')
                         .update({ frame: camera.frame })
@@ -103,10 +103,10 @@ export default function HomeScreen() {
             }
 
             // Keep old previews for connections that failed.
-            const scannedCamerasById = new Map(scannedCameras.map(camera => [camera.id, camera]));
+            const refreshedCamerasById = new Map(refreshedCameras.map(camera => [camera.id, camera]));
 
             const camerasToDisplay = cameras.map(camera => {
-                return scannedCamerasById.get(camera.id) || camera;
+                return refreshedCamerasById.get(camera.id) || camera;
             });
             
             setDiscoveredCameras(camerasToDisplay);
@@ -148,11 +148,10 @@ export default function HomeScreen() {
             // Retrieve the password to send to server
             const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connection.connectionId}`);
 
-            const response = await authenticatedFetch('http://127.0.0.1:8000/api/cameras/scan', {
+            const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/discover/${encodeURIComponent(connection.connectionId)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    connection_id: connection.connectionId,
                     password: password || null,
                 }),
             }, 60000);
@@ -242,8 +241,9 @@ export default function HomeScreen() {
             // router.push('cameraFeed') // sometimes works, but safer to use:
             pathname: '/cameraFeedScreen',
             params: {
-                cameraIndex: item.index,
-                cameraName: item.name,
+                camera_id: item.id,
+                connection_id: item.connection_id,
+                camera_name: item.name
             },
         })
         console.log("router push working properly")
