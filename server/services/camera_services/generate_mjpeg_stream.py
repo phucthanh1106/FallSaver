@@ -2,6 +2,7 @@ import cv2
 import time
 from datetime import datetime, timezone, timedelta
 import os
+from pathlib import Path
 import dotenv
 from ultralytics import YOLO
 from services.fall_services.fall_detector import FallDetector
@@ -11,8 +12,9 @@ dotenv.load_dotenv()
 THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
 THRESHOLD_DROP = float(os.getenv("THRESHOLD_DROP"))
 
-# Load the model once
-model = YOLO("/Users/tyler/FallSaver/server/weights/yolo26n-pose.pt", task="pose")
+# Load the model once using a path that works on macOS, Windows, and Linux.
+MODEL_PATH = Path(__file__).resolve().parents[2] / "weights" / "yolo26n-pose.pt"
+model = YOLO(str(MODEL_PATH), task="pose")
 
 # Track active camera instances
 active_camera_instances = {}

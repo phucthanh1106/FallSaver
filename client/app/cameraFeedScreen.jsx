@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import API_URL from '../config/api.js';
 import supabase from '../config/supabaseClient.js';
 
 
@@ -20,7 +21,7 @@ export default function CameraFeedScreen() {
   const { camera_id, connection_id, camera_name } = useLocalSearchParams();
   const [streamSource, setStreamSource] = useState(null);
   const [feedError, setFeedError] = useState('');
-  const streamUrl = `http://127.0.0.1:8000/api/cameras/feed/${connection_id}/${camera_id}`;
+  const streamUrl = `${API_URL}/api/cameras/feed/${connection_id}/${camera_id}`;
 
   useEffect(() => {
     let isMounted = true;
@@ -60,7 +61,7 @@ export default function CameraFeedScreen() {
 
     // Call server to stop the camera
     try {
-      const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/stop/${camera_id}`, {
+      const response = await authenticatedFetch(`${API_URL}/api/cameras/stop/${camera_id}`, {
         method: 'POST',
       });
       console.log("Camera stop response:", response.status);

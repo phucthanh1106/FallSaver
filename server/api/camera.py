@@ -25,7 +25,7 @@ class CameraPasswordRequest(BaseModel):
     password: str | None = None
 
 
-@camera_router.get("/saved")
+@camera_router.get("/")
 def get_saved_cameras(current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     try:
         response = user_database.table("cameras").select("id, index, name, frame, connection_id").eq("user_id", str(current_user.id)).order("index").execute()
@@ -110,13 +110,12 @@ def refresh_saved_cameras(connection_id: str, request: CameraPasswordRequest, cu
     for camera, stream in camera_stream_pairs:
         wait_start = time.monotonic()
         was_ready = stream.frame_ready.is_set()
-        stream_identity = id(stream)
 
         # Get the first frame
         frame = stream.wait_for_first_frame()
 
         wait_time = time.monotonic() - wait_start
-        print(f"Camera {camera['id']}: stream={stream_identity}, ready_before={was_ready}, wait={wait_time:.2f}s")
+        print(f"Camera {camera['id']}: ready_before={was_ready}, wait={wait_time:.2f}s")
 
         # Keep the previous Supabase preview when no in-memory frame is available
         if frame is None:

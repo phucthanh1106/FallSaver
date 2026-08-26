@@ -22,9 +22,10 @@ class CameraStream:
         self.latest_frame = None
         self.latest_frame_time = None
         self.online = False
-        self.fps = 15 # Fall back if OpenCV cannot detect the FPS
+        self.producer_fps = 0.0
 
         self.frame_lock = threading.Lock()
+        # threading.Event() IS thread-safe out of the box.
         self.frame_ready = threading.Event() # this event means this camera has produced at least one frame
         self.stop_event = threading.Event()
         self.thread = None
@@ -40,11 +41,8 @@ class CameraStream:
     def _run(self):
         """Infinite loop pulling frames continuously to keep OpenCV buffers clear."""
         # First while loop is for opening the connection and maintaining that connection
-        connection_start = time.monotonic()
-
         while not self.stop_event.is_set():
             cap = None
-
             try:
                 cap = cv2.VideoCapture(
                     self.source,
@@ -63,14 +61,8 @@ class CameraStream:
                     self.stop_event.wait(2)
                     continue
 
-                detected_fps = cap.get(cv2.CAP_PROP_FPS)
-
-                with self.frame_lock:
-                    if detected_fps and 1 <= detected_fps <= 120:
-                        self.fps = detected_fps
-                    else:
-                        self.fps = 25.0
-
+                produced_frames = 0
+                measurement_start = time.monotonic()
                 # Second loop is for getting the frames continuously from the open connection
                 while not self.stop_event.is_set():
                     success, frame = cap.read()
@@ -83,7 +75,22 @@ class CameraStream:
                         self.latest_frame_time = time.time()
                         self.online = True
 
+                    # Releasing the lock before you ring the alarm bell ensures the path is completely clear for the main thread as soon as it wakes up.
                     self.frame_ready.set()
+
+                    # Count every frame successfully produced by OpenCV.
+                    produced_frames += 1
+                    elapsed = time.monotonic() - measurement_start
+
+                    # Update the average producer FPS once per second.
+                    if elapsed >= 1:
+                        measured_fps = produced_frames / elapsed
+
+                        with self.frame_lock:
+                            self.producer_fps = measured_fps
+
+                        produced_frames = 0
+                        measurement_start = time.monotonic()
             except Exception:
                 self._set_offline()
             finally:
@@ -111,7 +118,7 @@ class CameraStream:
             return {
                 "online": self.online,
                 "latest_frame_time": self.latest_frame_time,
-                "fps": self.fps,
+                "fps": self.producer_fps,
             }
         
     def wait_for_first_frame(self, timeout=5):
@@ -142,12 +149,11 @@ def get_or_start_camera_stream(camera_id, source):
             return stream
 
         # Cache invalidation: Stream exists but its source/credentials changed, so remove it from the map
-        if stream:
-            del camera_streams[camera_id]
+        old_stream = camera_streams.pop(camera_id, None)
 
     # Stop the outdated stream OUTSIDE the lock to avoid blocking other threads during network teardown
-    if stream:
-        stream.stop()
+    if old_stream:
+        old_stream.stop()
 
     # Create the replacement stream instance with the new connection details
     new_stream = CameraStream(camera_id, source)

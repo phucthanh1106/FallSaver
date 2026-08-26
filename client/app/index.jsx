@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { getCameraConnection, clearCameraConnection } from '../config/cameraConnection.js';
 import supabase from "../config/supabaseClient.js";
 import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import API_URL from '../config/api.js';
 import EditCameraModal from '../components/EditCameraModal.jsx';
 import * as SecureStore from 'expo-secure-store';
 
@@ -61,7 +62,7 @@ export default function HomeScreen() {
                 const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
 
                 try {
-                    const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/refresh/${connectionId}`, {
+                    const response = await authenticatedFetch(`${API_URL}/api/cameras/refresh/${connectionId}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ password: password || null }),
@@ -148,7 +149,7 @@ export default function HomeScreen() {
             // Retrieve the password to send to server
             const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connection.connectionId}`);
 
-            const response = await authenticatedFetch(`http://127.0.0.1:8000/api/cameras/discover/${encodeURIComponent(connection.connectionId)}`, {
+            const response = await authenticatedFetch(`${API_URL}/api/cameras/discover/${encodeURIComponent(connection.connectionId)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
