@@ -49,13 +49,10 @@ export default function HomeScreen() {
             if (!shouldRefreshFrames || cameras.length === 0) {
                 return cameras;
             }
-
-            if (userError || !user) {
-                throw new Error('You must sign in before refreshing cameras.');
-            }
+            
+            const connectionIds = [...new Set(cameras.map(camera => camera.connection_id).filter(Boolean))];
 
             const refreshResults = await Promise.all(connectionIds.map(async connectionId => {
-                const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
                 try {
                     const response = await authenticatedFetch(`${API_URL}/api/cameras/refresh/${connectionId}`, {
                         method: 'POST',
@@ -133,21 +130,8 @@ export default function HomeScreen() {
             }   
 
             // First time inputting connection
-            const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-            if (userError || !user) {
-                throw new Error('You must sign in before scanning cameras.');
-            }
-
-            // Retrieve the password to send to server
-            const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connection.connectionId}`);
-
             const response = await authenticatedFetch(`${API_URL}/api/cameras/discover/${encodeURIComponent(connection.connectionId)}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    password: password || null,
-                }),
             }, 60000);
 
             if (!response.ok) {
