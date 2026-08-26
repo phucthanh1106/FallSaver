@@ -3,6 +3,8 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableO
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { setCameraConnection } from '../config/cameraConnection.js';
+import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import API_URL from '../config/api.js';
 import supabase from "../config/supabaseClient.js";
 
 function isPrivateIpv4(value) {
@@ -33,29 +35,22 @@ export default function CameraAddressScreen() {
         }
 
         // If this connection does not need authentication, then only save the ipv4 address to the database
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-            setError('You must sign in before connecting cameras.');
-            return;
-        }
-
-        const { data: connection, error: connectionError } = await supabase
-            .from('camera_connections')
-            .upsert({
-                user_id: user.id,
+        const response = await authenticatedFetch(`${API_URL}/api/cameras/connections`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
                 ipv4: cleanIpv4,
-            }, { onConflict: 'user_id,ipv4' })
-            .select('id')
-            .single();
+                username: null,
+                password: null,
+            }),
+        });
 
-        if (connectionError || !connection) {
-            setError(connectionError?.message || 'Failed to save camera connection.');
-            return;
+        if (!response.ok) {
+            throw new Error(`Connection request failed with status ${response.status}`);
         }
 
-        setCameraConnection({ connection_id: connection.connectionId });
-        
+        const connection = await response.json();
+        setCameraConnection({ connectionId: connection.id });
         router.dismissAll();
     };
 

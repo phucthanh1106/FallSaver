@@ -12,6 +12,7 @@ from services.camera_services.camera_scanner import scan_cameras
 from services.camera_services.generate_mjpeg_stream import generate_mjpeg_stream, release_camera
 from services.auth_services.auth import get_current_user, get_user_database
 from services.camera_services.stream_manager import get_or_start_camera_stream, get_camera_stream
+from services.camera_services.camera_credentials import encrypt_camera_password, decrypt_camera_password
 
 camera_router = APIRouter()
 active_cameras = {}
@@ -24,6 +25,12 @@ private_networks = (
 class CameraPasswordRequest(BaseModel):
     password: str | None = None
 
+# Information required to create or update a camera connection.
+class CameraConnectionRequest(BaseModel):
+    ipv4: str
+    username: str | None = None
+    password: str | None = None
+
 
 @camera_router.get("/")
 def get_saved_cameras(current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
@@ -32,6 +39,58 @@ def get_saved_cameras(current_user=Depends(get_current_user), user_database=Depe
         return response.data
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load saved cameras") from error
+
+@camera_router.post("/connections")
+def save_camera_connection(request: CameraConnectionRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+    # 1. Extracting basic information of a connection (ipv4, username, pwd)
+    try:
+        ipv4 = IPv4Address(request.ipv4)
+    except:
+        raise HTTPException(status_code=400, detail="Invalid IPv4 address")
+
+    # Only allow private household addresses.
+    if not any(ipv4 in network for network in private_networks):
+        raise HTTPException(status_code=400, detail="IPv4 address must be private")
+
+    if request.username:
+        username = request.username.strip()
+    else:
+        usename = None
+
+    # Authentication requires both a username and password.
+    if bool(username) != bool(request.password):
+        raise HTTPException(status_code=400, detail="Username and password must be provided together")
+
+    # Encrypt the password before it reaches Supabase.
+    encrypted_password = encrypt_camera_password(request.password)
+
+    # 2. Store these information on supabase
+    try:
+        response = user_database.table("camera_connections").upsert({
+            "user_id": str(current_user.id),
+            "ipv4": str(ipv4),
+            "username": username,
+            "encrypted_password": encrypted_password,
+        }, on_conflict="user_id,ipv4").execute()
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="Could not save camera connection") from error
+
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Camera connection was not saved")
+
+    connection = response.data[0]
+
+    # Never return the encrypted password.
+    return {
+        "id": connection["id"],
+        "ipv4": connection["ipv4"],
+        "username": connection.get("username"),
+    }
+
+
+
+
+
 
 @camera_router.post("/discover/{connection_id}")
 def discover_cameras(connection_id: str, request: CameraPasswordRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):

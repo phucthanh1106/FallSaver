@@ -3,6 +3,8 @@ import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableO
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setCameraConnection } from '../config/cameraConnection.js';
+import { authenticatedFetch } from '../config/authenticatedFetch.js';
+import API_URL from '../config/api.js';
 import supabase from "../config/supabaseClient.js";
 import * as SecureStore from 'expo-secure-store';
 
@@ -20,7 +22,7 @@ export default function CameraCredentialsScreen() {
             return;
         }
 
-        // Get tge user in this session
+        // 1. Get the user in this session to get the userId
         const { data: { user }, error: userError } = await supabase.auth.getUser();
 
         if (userError || !user) {
@@ -28,23 +30,23 @@ export default function CameraCredentialsScreen() {
             return;
         }
 
-        const { data: connection, error: connectionError } = await supabase
-            .from('camera_connections')
-            .upsert({
-                user_id: user.id,
+        // 2. Send the connection's information to database
+        const response = await authenticatedFetch(`${API_URL}/api/cameras/connections`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
                 ipv4,
                 username: username.trim(),
-            }, { onConflict: 'user_id, ipv4' })
-            .select('id')
-            .single();
+                password,
+            }),
+        })
         
-
-
-        if (connectionError || !connection) {
-            console.warn('Failed to save camera connection:', connectionError);
-            setError(connectionError?.message || 'Failed to save camera connection.');
-            return;
+        if (!response.ok) {
+            throw new Error(`Connection save failed with status ${response.status}`)
         }
+
+        // 3. Get the conenction id and store it in frontend
+        const connection = await response.json();
 
         await SecureStore.setItemAsync(`camera-password-${user.id}-${connection.id}`, password);
 
