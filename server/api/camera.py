@@ -134,7 +134,7 @@ def refresh_saved_cameras(connection_id: str, current_user=Depends(get_current_u
 
     # 3. If username exists but pwd DNE then this connection can't be accessed
     try:
-        password = decrypt_camera_password(connection.get("encrypt_camera_password"))
+        password = decrypt_camera_password(connection.get("encrypted_password"))
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not decrypt camera credentials") from error
 
