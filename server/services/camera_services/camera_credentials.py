@@ -1,7 +1,8 @@
 import os
 from cryptography.fernet import Fernet
+import dotenv 
 
-
+dotenv.load_dotenv()
 # Create the encryption tool using the backend-only key.
 encryption_key = os.getenv("CAMERA_ENCRYPTION_KEY")
 

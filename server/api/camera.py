@@ -22,9 +22,6 @@ private_networks = (
     IPv4Network("192.168.0.0/16"),
 )
 
-class CameraPasswordRequest(BaseModel):
-    password: str | None = None
-
 # Information required to create or update a camera connection.
 class CameraConnectionRequest(BaseModel):
     ipv4: str
@@ -45,7 +42,7 @@ def save_camera_connection(request: CameraConnectionRequest, current_user=Depend
     # 1. Extracting basic information of a connection (ipv4, username, pwd)
     try:
         ipv4 = IPv4Address(request.ipv4)
-    except:
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid IPv4 address")
 
     # Only allow private household addresses.
@@ -55,7 +52,7 @@ def save_camera_connection(request: CameraConnectionRequest, current_user=Depend
     if request.username:
         username = request.username.strip()
     else:
-        usename = None
+        username = None
 
     # Authentication requires both a username and password.
     if bool(username) != bool(request.password):
@@ -87,16 +84,12 @@ def save_camera_connection(request: CameraConnectionRequest, current_user=Depend
         "username": connection.get("username"),
     }
 
-
-
-
-
-
+# Scan a connection using credentials stored by the backend.
 @camera_router.post("/discover/{connection_id}")
-def discover_cameras(connection_id: str, request: CameraPasswordRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+def discover_cameras(connection_id: str, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     try:
         # a user cannot scan another user’s saved connection ID since we do 2 .eq(user_id) and .eq(connection_id)
-        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
+        connection_response = user_database.table("camera_connections").select("id, ipv4, username, encrypted_password").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load camera connection") from error
 
@@ -107,23 +100,28 @@ def discover_cameras(connection_id: str, request: CameraPasswordRequest, current
     ipv4 = IPv4Address(connection["ipv4"])
     username = connection.get("username")
 
+    try:
+        password = decrypt_camera_password(connection.get("encrypted_password"))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="Could not decrypt camera credentials") from error
+
     if not any(ipv4 in network for network in private_networks):
         raise HTTPException(status_code=400, detail="Saved IPv4 address is not private")
 
-    if bool(username) != bool(request.password):
+    if bool(username) != bool(password):
         raise HTTPException(status_code=400, detail="Camera password is unavailable")
 
-    return scan_cameras(str(ipv4), username, request.password)
+    return scan_cameras(str(ipv4), username, password)
 
 
 @camera_router.post("/refresh/{connection_id}")
-def refresh_saved_cameras(connection_id: str, request: CameraPasswordRequest, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
+def refresh_saved_cameras(connection_id: str, current_user=Depends(get_current_user), user_database=Depends(get_user_database)):
     """
     The workflow is: Get all connections + all saved camera indexes =>
     """
     # 1. Query all rows of the connection that match the connection id that the request asks for
     try:
-        connection_response = user_database.table("camera_connections").select("id, ipv4, username").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
+        connection_response = user_database.table("camera_connections").select("id, ipv4, username, encrypted_password").eq("id", connection_id).eq("user_id", str(current_user.id)).execute()
     except Exception as error:
         raise HTTPException(status_code=500, detail="Could not load the saved camera connection") from error
 
@@ -135,7 +133,12 @@ def refresh_saved_cameras(connection_id: str, request: CameraPasswordRequest, cu
     connection = connection_response.data[0]
 
     # 3. If username exists but pwd DNE then this connection can't be accessed
-    if connection.get("username") and not request.password:
+    try:
+        password = decrypt_camera_password(connection.get("encrypt_camera_password"))
+    except Exception as error:
+        raise HTTPException(status_code=500, detail="Could not decrypt camera credentials") from error
+
+    if bool(connection.get("username")) != bool(password):
         raise HTTPException(status_code=400, detail="The camera password is unavailable on this device")
 
     # 4. Load the saved cameras and extract the indexes
@@ -151,9 +154,9 @@ def refresh_saved_cameras(connection_id: str, request: CameraPasswordRequest, cu
     username = connection.get("username")
     authentication = ""
 
-    if username and request.password:
+    if username and password:
         encoded_username = quote(username, safe="")
-        encoded_password = quote(request.password, safe="")
+        encoded_password = quote(password, safe="")
         authentication = f"{encoded_username}:{encoded_password}@"
 
     camera_stream_pairs = []

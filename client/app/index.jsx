@@ -50,22 +50,15 @@ export default function HomeScreen() {
                 return cameras;
             }
 
-            const { data: { user }, error: userError } = await supabase.auth.getUser();
-
             if (userError || !user) {
                 throw new Error('You must sign in before refreshing cameras.');
             }
 
-            const connectionIds = [...new Set(cameras.map(camera => camera.connection_id).filter(Boolean))];
-
             const refreshResults = await Promise.all(connectionIds.map(async connectionId => {
                 const password = await SecureStore.getItemAsync(`camera-password-${user.id}-${connectionId}`);
-
                 try {
                     const response = await authenticatedFetch(`${API_URL}/api/cameras/refresh/${connectionId}`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ password: password || null }),
                     }, 60000);
 
                     if (!response.ok) {

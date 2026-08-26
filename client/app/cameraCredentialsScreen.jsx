@@ -5,8 +5,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setCameraConnection } from '../config/cameraConnection.js';
 import { authenticatedFetch } from '../config/authenticatedFetch.js';
 import API_URL from '../config/api.js';
-import supabase from "../config/supabaseClient.js";
-import * as SecureStore from 'expo-secure-store';
 
 export default function CameraCredentialsScreen() {
     const { ipv4 } = useLocalSearchParams();
@@ -22,15 +20,7 @@ export default function CameraCredentialsScreen() {
             return;
         }
 
-        // 1. Get the user in this session to get the userId
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-            setError('You must sign in before connecting cameras.');
-            return;
-        }
-
-        // 2. Send the connection's information to database
+        // 1. Send the connection's information to database
         const response = await authenticatedFetch(`${API_URL}/api/cameras/connections`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -45,10 +35,9 @@ export default function CameraCredentialsScreen() {
             throw new Error(`Connection save failed with status ${response.status}`)
         }
 
-        // 3. Get the conenction id and store it in frontend
+        // 2. Get the conenction id and store it in frontend
         const connection = await response.json();
-
-        await SecureStore.setItemAsync(`camera-password-${user.id}-${connection.id}`, password);
+        console.log(connection)
 
         setCameraConnection({
             connectionId: connection.id,
