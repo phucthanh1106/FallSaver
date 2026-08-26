@@ -83,8 +83,6 @@ export default function HomeScreen() {
                         .from('cameras')
                         .update({ frame: camera.frame })
                         .eq('id', camera.id)
-                        .eq('user_id', user.id);
-
                     if (error) {
                         throw error;
                     }
@@ -147,9 +145,6 @@ export default function HomeScreen() {
                 return;
             }
 
-            // Update state of this component
-            setDiscoveredCameras(data);
-
             if (data.length > 0) {
                 try {
                     await handleAddCameras(data);
@@ -157,6 +152,12 @@ export default function HomeScreen() {
                     console.warn('Cameras were detected but could not be saved:', saveError);
                 }
             }
+
+            // Update state of this component
+            setDiscoveredCameras(data);
+
+            // Future refreshes should use saved streams instead of scanning ten indexes.
+            clearCameraConnection();
         } catch (err) {
             console.warn('Failed to scan cameras', err);
             Alert.alert('Cameras offline', 'Showing the last saved previews.');
@@ -215,6 +216,8 @@ export default function HomeScreen() {
 
     // When click on a preview of a camera, navigate the user to a page that displays that camera live
     const handleGoToLiveFeed = async (item) => {
+        console.log(item.id)
+        console.log(item.connection_id)
         router.push({
             // router.push('cameraFeed') // sometimes works, but safer to use:
             pathname: '/cameraFeedScreen',
