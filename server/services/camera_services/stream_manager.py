@@ -5,17 +5,18 @@ import cv2
 
 # ============================================================================
 # Global dictionary holding all active camera streams in server memory.
-# Structure: { camera_id: CameraStreamInstance }
+# Structure: { source: CameraStreamInstance }
 # ============================================================================
-camera_streams = {}
+camera_streams = {} # {source: CameraStream}
+# Connect each user-specific camera to its shared RTSP source
+camera_sources = {} # {camera_id: source}
 camera_streams_lock = (
     threading.Lock()
 )  # Protects adding/removing items from camera_streams
 
 # CameraStream manages a camera stream and owns its background thread
 class CameraStream:
-    def __init__(self, camera_id, source):
-        self.camera_id = str(camera_id)
+    def __init__(self, source):
         self.source = source
 
         # Shared frame state
@@ -140,34 +141,37 @@ class CameraStream:
 def get_or_start_camera_stream(camera_id, source):
     camera_id = str(camera_id)
 
-    # Acquire lock to safely inspect and update the global streams dictionary
+    # Connect this camera row to its physical RTSP source
     with camera_streams_lock:
-        stream = camera_streams.get(camera_id)
+        stream = camera_streams.get(source)
 
-        # Cache hit: If a stream already exists with the exact same RTSP source/credentials, reuse it
-        if stream and stream.source == source and stream.thread and stream.thread.is_alive():
+        if stream and stream.thread and stream.thread.is_alive():
+            camera_sources[camera_id] = source
             return stream
 
-        # Cache invalidation: Stream exists but its source/credentials changed, so remove it from the map
-        old_stream = camera_streams.pop(camera_id, None)
+        # Remove the stream for this source if its thread is no longer running
+        old_stream = camera_streams.pop(source, None)
 
     # Stop the outdated stream OUTSIDE the lock to avoid blocking other threads during network teardown
     if old_stream:
         old_stream.stop()
 
     # Create the replacement stream instance with the new connection details
-    new_stream = CameraStream(camera_id, source)
+    new_stream = CameraStream(source)
 
     # Re-acquire lock to safely register the newly created stream
     with camera_streams_lock:
         # Double-check: Handle race condition where another thread might have registered a stream while lock was released
-        existing_stream = camera_streams.get(camera_id)
+        existing_stream = camera_streams.get(source)
 
         if existing_stream:
+            camera_sources[camera_id] = source
             return existing_stream
 
         # Register the new stream in the global in-memory store
-        camera_streams[camera_id] = new_stream
+
+        camera_streams[source] = new_stream
+        camera_sources[camera_id] = source
 
     # Start the background frame-grabbing thread outside the lock
     new_stream.start()
@@ -176,12 +180,18 @@ def get_or_start_camera_stream(camera_id, source):
 
 def get_camera_stream(camera_id):
     with camera_streams_lock:
-        return camera_streams.get(str(camera_id))
+        source = camera_sources.get(str(camera_id))
+        return camera_streams.get(source)
 
 
 def stop_camera_stream(camera_id):
     with camera_streams_lock:
-        stream = camera_streams.pop(str(camera_id), None)
+        source = camera_sources.pop(str(camera_id), None)
+        stream = None
+
+        # Keep the shared stream alive while another camera row uses it
+        if source and source not in camera_sources.values():
+            stream = camera_streams.pop(source, None)
 
     if stream:
         stream.stop()
@@ -191,6 +201,7 @@ def stop_all_camera_streams():
     with camera_streams_lock:
         streams = list(camera_streams.values())
         camera_streams.clear()
+        camera_sources.clear()
 
     for stream in streams:
         stream.stop()

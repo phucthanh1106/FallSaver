@@ -163,13 +163,15 @@ def refresh_saved_cameras(connection_id: str, current_user=Depends(get_current_u
 
     # 6. Start every stream first so they connect concurrently
     for camera in saved_response.data:
-        camera_index = camera["index"]
-        source = f"rtsp://{authentication}{connection['ipv4']}:554/Streaming/Channels/{camera_index}"
-        stream = get_or_start_camera_stream(camera["id"], source)
-        camera_stream_pairs.append((camera, stream))
+        camera_id = camera["id"]
+        stream = get_camera_stream(camera_id)
 
-    # 7. Getting the frames
-    for camera, stream in camera_stream_pairs:
+        if stream is None:
+            camera_index = camera["index"]
+            source = f"rtsp://{authentication}{connection['ipv4']}:554/Streaming/Channels/{camera_index}"
+            stream = get_or_start_camera_stream(camera["id"], source)
+            camera_stream_pairs.append((camera, stream))
+
         wait_start = time.monotonic()
         was_ready = stream.frame_ready.is_set()
 

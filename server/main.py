@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.camera import camera_router 
 from contextlib import asynccontextmanager
 from services.camera_services.stream_manager import stop_all_camera_streams
+from services.camera_services.start_saved_camera_streams import start_saved_camera_streams
 import os
 
 os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
@@ -10,6 +11,7 @@ os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 
 @asynccontextmanager
 async def lifespan(app):
+    start_saved_camera_streams()
     yield
     stop_all_camera_streams()
 
