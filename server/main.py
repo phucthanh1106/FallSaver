@@ -13,7 +13,6 @@ async def lifespan(app):
     yield
     stop_all_camera_streams()
 
-
 app = FastAPI(lifespan=lifespan)
 
 # Allow your iPhone to talk to your Mac
