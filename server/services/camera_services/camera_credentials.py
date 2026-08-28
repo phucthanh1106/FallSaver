@@ -11,7 +11,6 @@ if not encryption_key:
 
 cipher = Fernet(encryption_key.encode())
 
-
 # Encrypt an RTSP password before saving it.
 def encrypt_camera_password(password):
     if not password:

@@ -2,45 +2,18 @@ import cv2
 import time
 from datetime import datetime, timezone, timedelta
 import os
-from pathlib import Path
 import dotenv
-from ultralytics import YOLO
 from services.fall_services.fall_detector import FallDetector
 from services.fall_services.log_fall_events import log_fall_events
+from services.camera_services.stream_manager import get_camera_stream
+
 
 dotenv.load_dotenv()
 THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
 THRESHOLD_DROP = float(os.getenv("THRESHOLD_DROP"))
 
-# Load the model once using a path that works on macOS, Windows, and Linux.
-MODEL_PATH = Path(__file__).resolve().parents[2] / "weights" / "yolo26n-pose.pt"
-model = YOLO(str(MODEL_PATH), task="pose")
-
 # Track active camera instances
 active_camera_instances = {}
-
-def show_fps(prev_time, frame):
-    """Show FPS on frame"""
-    cur_time = time.time()
-    fps = 1 / (cur_time - prev_time)
-    prev_time = cur_time
-
-    cv2.putText(
-        frame,
-        f"FPS: {int(fps)}",
-        (20, 40),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.5,
-        (0, 255, 0),
-        1
-    )
-
-    return prev_time
-
-
-# Track the most recent fall separately for each person on each camera
-fall_events_time = {}
-
 
 def generate_mjpeg_stream(camera_id, camera_name, stream):
     """Generator that yields JPEG frames as MJPEG stream with fall detection"""
@@ -48,44 +21,37 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
         print("Camera stream is missing")
         return
     
-    # Use the camera FPS to create a fixed 1.5-second detection window
-    stream.wait_for_first_frame()
-    video_fps = stream.get_status()["fps"]
-    fall_window = max(2, int(video_fps * 1.5))
-    fall_detector = FallDetector(history_size=fall_window, threshold_angle=THRESHOLD_ANGLE, threshold_drop=THRESHOLD_DROP)
-    
+    # Read completed YOLO results from the background inference thread
+    fall_detector = None
+    fall_window = None
     prev_time = time.time()
-    last_frame_time = None
+    last_result_time = None
 
     try:
-        while stream.thread and stream.thread.is_alive():
-            frame_time = stream.get_status()["latest_frame_time"]
+        while stream.consumer_thread and stream.consumer_thread.is_alive():
+            # Get the latest result and the frame that produced it
+            r, result_time = stream.get_latest_result()
 
-
-            # Do not process the same frame more than once
-            if frame_time is None or frame_time == last_frame_time:
+            # Wait when inference has not completed or this result was already used
+            if r is None or result_time == last_result_time:
                 time.sleep(0.01)
                 continue
 
-            frame = stream.get_latest_frame()
+            # Wait for the first reliable inference FPS measurement
+            consumer_fps = stream.get_status()["consumer_fps"]
 
-            if frame is None:
-                    time.sleep(0.01)
-                    continue
+            if consumer_fps <= 0:
+                time.sleep(0.01)
+                continue
 
-            last_frame_time = frame_time
-            
-            # Resize while preserving the original aspect ratio
-            new_width = 640
-            scale = new_width / frame.shape[1]
-            new_height = int(frame.shape[0] * scale)
-            frame = cv2.resize(frame, (new_width, new_height))
-            
-            # Run fall detection model
-            results = model.track(frame, persist=True, conf=0.1, device="cpu", verbose=False)
-            r = results[0]
-            
-            # Draw bounding boxes and keypoints
+            # Create one detector using the actual inference rate
+            if fall_detector is None:
+                fall_window = max(2, int(consumer_fps * 1.5))
+                fall_detector = FallDetector(history_size=fall_window, threshold_angle=THRESHOLD_ANGLE, threshold_drop=THRESHOLD_DROP)
+
+            last_result_time = result_time
+
+            # Draw boxes and keypoints from the cached YOLO result
             annotated_frame = r.plot()
             
             # Get detection data
@@ -98,7 +64,15 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
             frame_height, frame_width = annotated_frame.shape[:2]
             
             # Show FPS
-            prev_time = show_fps(prev_time, annotated_frame)
+            cv2.putText(
+                annotated_frame,
+                f"FPS: {int(consumer_fps)}",
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1
+            )
             
             # Status tracking for display
             status_text = "OK"
@@ -175,15 +149,6 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                         is_fall = fall_detector.detect_fall(recent_angles, recent_xywh, conf, fall_window)
                         # Draw fall detection result
                         if is_fall:
-                            now = datetime.now(timezone.utc)
-                            event_key = (camera_id, person_id)
-                            last_fall = fall_events_time.get(event_key)
-
-                            # Ensure that repeated events for the same person do not overlap
-                            if last_fall is None or (now - last_fall).total_seconds() > 2:
-                                fall_events_time[event_key] = now
-                                log_fall_events(camera_id=camera_id, camera_name=camera_name, angle_change=float(angle_change), vertical_drop=float(vertical_drop))
-                            
                             status_text = "FALL"
                             status_color = (0, 0, 255)
             
@@ -213,10 +178,9 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                 b'Content-length: ' + str(len(buffer)).encode() + b'\r\n\r\n'
                 + buffer.tobytes() + b'\r\n')
     finally:
-        fall_detector.info_history.clear()
-
-        for event_key in [key for key in fall_events_time if key[0] == camera_id]:
-            fall_events_time.pop(event_key, None)
+        # The stream may close before the first result arrives
+        if fall_detector is not None:
+            fall_detector.info_history.clear()
 
 
 def release_camera(camera_index):
