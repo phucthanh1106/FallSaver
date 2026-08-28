@@ -173,7 +173,7 @@ def refresh_saved_cameras(connection_id: str, current_user=Depends(get_current_u
             camera_stream_pairs.append((camera, stream))
 
         wait_start = time.monotonic()
-        was_ready = stream.frame_ready.is_set()
+        was_ready = stream.first_frame_ready.is_set()
 
         # Get the first frame
         frame = stream.wait_for_first_frame()

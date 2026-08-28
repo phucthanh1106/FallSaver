@@ -6,13 +6,11 @@ from pathlib import Path
 import dotenv
 from ultralytics import YOLO
 import os
-import onnxruntime as ort
 
 
 # ============================================================================
 # YOLO & ONNX
 # ============================================================================
-print(ort.get_available_providers())
 dotenv.load_dotenv()
 THRESHOLD_ANGLE = int(os.getenv("THRESHOLD_ANGLE"))
 THRESHOLD_DROP = float(os.getenv("THRESHOLD_DROP"))
@@ -160,7 +158,7 @@ class CameraStream:
                 frame = cv2.resize(frame, (new_width, new_height))
 
                 # Run YOLO in the consumer thread 
-                results = self.model.track(frame, persist=True, conf=0.1, device="cpu", verbose=False)
+                results = self.model.track(frame, persist=True, conf=0.1, device=0, verbose=False)
 
                 # Cache the newest completed inference result
                 with self.result_lock:

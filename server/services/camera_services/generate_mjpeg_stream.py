@@ -38,7 +38,9 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                 continue
 
             # Wait for the first reliable inference FPS measurement
-            consumer_fps = stream.get_status()["consumer_fps"]
+            stream_status = stream.get_status()
+            producer_fps = stream_status["producer_fps"]
+            consumer_fps = stream_status["consumer_fps"]
 
             if consumer_fps <= 0:
                 time.sleep(0.01)
@@ -63,11 +65,22 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
             # Get frame dimensions for top-right positioning
             frame_height, frame_width = annotated_frame.shape[:2]
             
-            # Show FPS
+            # Show the camera capture FPS on the first line
             cv2.putText(
                 annotated_frame,
-                f"FPS: {int(consumer_fps)}",
+                f"Producer FPS: {producer_fps:.1f}",
                 (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1
+            )
+
+            # Show the YOLO inference FPS on the second line
+            cv2.putText(
+                annotated_frame,
+                f"Consumer FPS: {consumer_fps:.1f}",
+                (20, 70),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
                 (0, 255, 0),
@@ -94,17 +107,6 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                     
                     x1, y1, x2, y2 = boxes.xyxy[i]
                     
-                    # Display body angle
-                    cv2.putText(
-                        annotated_frame,
-                        f"Angle: {int(angle)}°",
-                        (int(x2) - 70, int(y1) - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.4,
-                        (255, 0, 0),
-                        1
-                    )
-                    
                     # Update history using the detector
                     fall_detector.update_history(person_id, angle, boxes.xywh[i], boxes.conf[i].item())
                     
@@ -120,40 +122,41 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                         # Display metrics
                         cv2.putText(
                             annotated_frame,
-                            f"Angle Change: {angle_change:.1f}°",
-                            (20, 80),
+                            f"Angle: {angle_change: .1f}",
+                            (int(x2) + 10, int(y2) - 10),
                             cv2.FONT_HERSHEY_SIMPLEX,
-                            0.4,
+                            0.3,
                             (0, 255, 0),
-                            1
+                            2,
                         )
                         cv2.putText(
                             annotated_frame,
                             f"Vert Drop: {vertical_drop:.2f}",
-                            (20, 120),
+                            (int(x2) + 10, int(y2) - 40),
                             cv2.FONT_HERSHEY_SIMPLEX,
-                            0.4,
+                            0.3,
                             (0, 255, 0),
-                            1
+                            2,
                         )
                         cv2.putText(
                             annotated_frame,
                             f"Case: {case}",
-                            (20, 160),
+                            (int(x2) + 10, int(y2) - 70),
                             cv2.FONT_HERSHEY_SIMPLEX,
-                            0.4,
+                            0.3,
                             (0, 255, 0),
-                            1
+                            2,
                         )
                         
                         is_fall = fall_detector.detect_fall(recent_angles, recent_xywh, conf, fall_window)
                         # Draw fall detection result
                         if is_fall:
-                            status_text = "FALL"
+                            print("FALLLLLLLL")
+                            status_text = "FALL DETECTED!"
                             status_color = (0, 0, 255)
             
             # Display status at top-right
-            text_size = cv2.getTextSize(f"Status: {status_text}", cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            text_size = cv2.getTextSize(f"Status: {status_text}", cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
             text_x = frame_width - text_size[0] - 20
             text_y = 50
             
@@ -162,7 +165,7 @@ def generate_mjpeg_stream(camera_id, camera_name, stream):
                 f"Status: {status_text}",
                 (text_x, text_y),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
+                1,
                 status_color,
                 2
             )
