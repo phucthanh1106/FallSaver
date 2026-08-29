@@ -1,1 +1,10 @@
 __pycache__/
+*.py[cod]
+.DS_Store
+
+# Local environment files. Commit only sanitized examples.
+.env
+.env.*
+!.env.example
+client/.env
+server/.env

@@ -161,7 +161,7 @@ def refresh_saved_cameras(connection_id: str, current_user=Depends(get_current_u
 
     camera_stream_pairs = []
 
-    # 6. Start every stream first so they connect concurrently
+    # 6. Get the latest frames from each camera
     for camera in saved_response.data:
         camera_id = camera["id"]
         stream = get_camera_stream(camera_id)

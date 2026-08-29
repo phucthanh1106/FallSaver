@@ -9,6 +9,15 @@ import os
 os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:8081,http://127.0.0.1:8081",
+    ).split(",")
+    if origin.strip()
+]
+
 @asynccontextmanager
 async def lifespan(app):
     start_saved_camera_streams()
@@ -17,12 +26,13 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 
-# Allow your iPhone to talk to your Mac
+# Browser clients must come from an explicitly configured origin. Native Expo
+# requests are not restricted by browser CORS enforcement.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Include our camera routes (like app.use('/cameras', cameraRoutes))
@@ -32,4 +42,3 @@ app.include_router(camera_router, prefix="/api/cameras")
 @app.get("/")
 async def root():
     return {"message": "Fall Saver Backend is running"}
-
