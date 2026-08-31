@@ -5,6 +5,7 @@ import cv2
 from pathlib import Path
 import dotenv
 from ultralytics import YOLO
+from services.fall_services.fall_detector import FallDetector
 import os
 
 
@@ -44,6 +45,8 @@ class CameraStream:
         self.online = False
         self.producer_fps = 0.0
         self.consumer_fps = 0.0
+        self.fall = False
+        
 
         # Protect frame data and result shared between both threads
         self.frame_lock = threading.Lock() 
@@ -71,7 +74,6 @@ class CameraStream:
     def _run(self):
         """Infinite loop pulling frames continuously to keep OpenCV buffers clear."""
         while not self.stop_event.is_set():  # First while loop is for opening the connection and maintaining that connection
-
             cap = None
             try:
                 cap = cv2.VideoCapture(
@@ -108,10 +110,10 @@ class CameraStream:
 
                     # Update the average producer FPS once per second.
                     if elapsed >= 1:
-                        measured_fps = produced_frames / elapsed
+                        producer_fps = produced_frames / elapsed
 
                         with self.frame_lock:
-                            self.producer_fps = measured_fps
+                            self.producer_fps = producer_fps
 
                         produced_frames = 0
                         producer_fps_start = time.monotonic()
@@ -133,8 +135,22 @@ class CameraStream:
     def _run_inference(self):
         last_frame_time = None
 
+        warmup_start = None
+        fall_detector = None
+        fall_window = None
+
         processed_results = 0
-        results_fps_start = time.monotonic()
+        consumer_fps_start = time.monotonic()
+
+        # Begin warm-up
+        now = time.monotonic()
+        if warmup_start is None:
+            warmup_start = now
+            print("Fall detector warm-up started")
+
+        while time.monotonic() - warmup_start < 8:
+            continue
+
         while not self.stop_event.is_set():
             # Sleep efficiently until the producer captures another frame
             if not self.inference_ready.wait(timeout=1):
@@ -151,6 +167,9 @@ class CameraStream:
                 frame_time = self.latest_frame_time
 
             try:
+                # This value belongs only to the current inference result.
+                frame_fall = False
+
                 # Resize the frame before inference
                 new_width = 640
                 scale = new_width / frame.shape[1]
@@ -159,27 +178,77 @@ class CameraStream:
 
                 # Run YOLO in the consumer thread 
                 results = self.model.track(frame, persist=True, conf=0.1, device=0, verbose=False)
+                result = results[0]
+
+                # Initialized fall detector
+                if fall_detector is None:
+
+                    fall_window = max(2, round(self.producer_fps * 1.5))
+                    fall_detector = FallDetector(
+                        history_size=fall_window,
+                        threshold_angle=THRESHOLD_ANGLE,
+                        threshold_drop=THRESHOLD_DROP,
+                    )
+
+                # Perform fall detection after the detector is initialized.
+                if fall_detector is not None:
+                    keypoints = result.keypoints.xy
+                    kp_conf = result.keypoints.conf
+                    boxes = result.boxes
+                    ids = result.boxes.id
+
+                    if ids is not None:
+                        selected_joints = keypoints[:, [5, 6, 11, 12, 15, 16], :]
+                        joints_conf = kp_conf[:, [5, 6, 11, 12, 15, 16]]
+                        
+                        for i, person_id in enumerate(ids):
+                            person_id = int(person_id.item())
+                            
+                            # Calculate body angle
+                            angle = fall_detector.body_angle(selected_joints[i], joints_conf[i])
+                            
+                            # Skip if angle is None (occluded)
+                            if angle is None:
+                                continue
+                            
+                            # Update history using the detector
+                            fall_detector.update_history(person_id, angle, boxes.xywh[i], boxes.conf[i].item())
+                            
+                            # Get history
+                            angles, xywh, conf = fall_detector.get_history(person_id)
+
+                            # Detect fall
+                            if len(angles) >= fall_window / 4.5:
+                                recent_angles = angles[-fall_window:]
+                                recent_xywh = xywh[-fall_window:]
+
+                                is_fall = fall_detector.detect_fall(recent_angles, recent_xywh, conf, fall_window)
+
+                                # Store the detection result
+                                if is_fall:
+                                    print("Falll")
+                                    frame_fall = True
+
+                # Calculating fps
+                processed_results += 1
+                elapsed = time.monotonic() - consumer_fps_start
+
+                if elapsed >= 1:
+                    consumer_fps = processed_results / elapsed
+
+                    with self.frame_lock:
+                        self.consumer_fps = consumer_fps
+
+                    processed_results = 0
+                    consumer_fps_start = time.monotonic()
 
                 # Cache the newest completed inference result
                 with self.result_lock:
-                    self.latest_result = results[0]
+                    self.latest_result = result
                     self.latest_result_time = frame_time
+                    self.fall = frame_fall
 
                 last_frame_time = frame_time
-
-                # Count every frame successfully processed by YOLO.
-                processed_results += 1
-                elapsed = time.monotonic() - results_fps_start
-
-                # Update the average producer FPS once per second.
-                if elapsed >= 1:
-                    measured_fps = processed_results / elapsed
-
-                    with self.frame_lock:
-                        self.consumer_fps = measured_fps
-
-                    processed_results = 0
-                    results_fps_start = time.monotonic()
             except Exception as error:
                 print(f"YOLO inference failed: {error}")
                 self.stop_event.wait(1)   
@@ -197,16 +266,21 @@ class CameraStream:
 
     def get_latest_result(self):
         with self.result_lock:
-            return self.latest_result, self.latest_result_time
+            return self.latest_result, self.latest_result_time, self.fall
 
     def get_status(self):
         with self.frame_lock:
-            return {
+            status = {
                 "online": self.online,
                 "latest_frame_time": self.latest_frame_time, 
                 "producer_fps": self.producer_fps,
                 "consumer_fps": self.consumer_fps,
             }
+
+        with self.result_lock:
+            status["fall"] = self.fall
+
+        return status
         
     def wait_for_first_frame(self, timeout=5):
         self.first_frame_ready.wait(timeout)
